@@ -49,7 +49,7 @@ wk auth switch <profile>   # change active profile
 wk auth status             # verify connectivity
 ```
 
-Supported regions: `us`, `eu`, `jp`, `au`, `sg`.
+Supported regions: `us`, `eu`, `jp`, `au`, `sg`, `trial` (developer sandbox).
 
 Credentials can be stored in the system keychain, an environment variable, a
 file, or HashiCorp Vault (see `--store` flag on `wk auth login`).

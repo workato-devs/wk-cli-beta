@@ -206,7 +206,7 @@ Set these before starting:
 
 ```sh
 export TEST_TOKEN="<your-workato-api-token>"
-export TEST_REGION="us"  # or eu, jp, au, sg
+export TEST_REGION="us"  # or eu, jp, au, sg, trial
 export TEST_RECIPE_ID="<id-of-a-non-critical-recipe>"
 export TEST_CONN_ID="<id-of-a-connection>"
 export TEST_FOLDER_ID="<id-of-a-folder-with-recipes>"
