@@ -21,12 +21,17 @@ type InstalledPlugin struct {
 
 // NewRegistry creates a Registry with the default directory (~/.wk/plugins/).
 // It creates the directory if it does not exist.
+// If WK_HOME is set, it is used instead of ~/.wk/ (useful for testing).
 func NewRegistry() (*Registry, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("determining home directory: %w", err)
+	base := os.Getenv("WK_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("determining home directory: %w", err)
+		}
+		base = filepath.Join(home, ".wk")
 	}
-	dir := filepath.Join(home, ".wk", "plugins")
+	dir := filepath.Join(base, "plugins")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("creating plugins directory: %w", err)
 	}

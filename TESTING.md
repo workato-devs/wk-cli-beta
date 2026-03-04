@@ -13,6 +13,173 @@ Both commands must succeed before proceeding.
 
 ---
 
+## Running the CLI from Arbitrary Directories
+
+During development, you'll often need to test a pre-release `wk` binary against directories that are **not** the repo itself — empty folders, existing Workato projects, nested workspace layouts, etc. This section explains how.
+
+### Build the binary
+
+From the repo root:
+
+```sh
+go build -o bin/wk ./cmd/wk
+```
+
+The binary at `bin/wk` is self-contained. You can copy or reference it from anywhere.
+
+### Set up an isolated environment
+
+The CLI stores plugin and auth state under `~/.wk/` by default. To avoid polluting your real home directory (or to test with a clean slate), set `WK_HOME`:
+
+```sh
+export WK_HOME="$(mktemp -d)/wk-home"
+mkdir -p "$WK_HOME"
+```
+
+When `WK_HOME` is set, the plugin registry uses `$WK_HOME/plugins/` instead of `~/.wk/plugins/`. This means plugin install, list, and hook dispatch all operate on the isolated directory.
+
+If you also want to isolate auth/keyring state, override `HOME` as well:
+
+```sh
+export HOME="$(mktemp -d)/fake-home"
+mkdir -p "$HOME"
+```
+
+### Reference the binary by absolute path
+
+Since the binary won't be on `$PATH`, use an absolute path or alias:
+
+```sh
+WK="$(pwd)/bin/wk"
+
+# Or create a temporary alias for the session:
+alias wk="$(pwd)/bin/wk"
+```
+
+### Test scenario: empty directory (no project)
+
+```sh
+cd "$(mktemp -d)"
+
+$WK status
+# Expected: error — "not in a wk project directory"
+
+$WK push
+# Expected: same error
+
+$WK version
+# Expected: works (no project required)
+
+$WK plugins list
+# Expected: empty list or clean output (uses WK_HOME)
+```
+
+### Test scenario: freshly initialized project
+
+```sh
+TESTDIR="$(mktemp -d)"
+cd "$TESTDIR"
+
+$WK init --name my-test --workspace dev --server-path "All projects/Test" --local-path "./recipes"
+cat wk.toml
+# Expected: valid wk.toml with sync entry
+
+$WK status
+# Expected: "No synced assets found." (directory exists but is empty)
+
+$WK push --dry-run
+# Expected: "No changes to push." or similar
+```
+
+### Test scenario: existing project with local files
+
+```sh
+TESTDIR="$(mktemp -d)"
+cd "$TESTDIR"
+
+# Scaffold a project manually
+mkdir -p recipes
+cat > wk.toml <<'TOML'
+workspace = "dev"
+
+[[sync]]
+server_path = "All projects"
+local_path  = "recipes"
+TOML
+
+# Add a file that looks like a new asset
+echo '{"name": "my recipe"}' > recipes/my_recipe.recipe.json
+
+$WK status
+# Expected: my_recipe.recipe.json shows as "new" (no .wk-meta.json sidecar)
+```
+
+### Test scenario: plugin hooks
+
+To test hooks without installing plugins to your real `~/.wk/`:
+
+```sh
+# Build the recipe-lint stub
+(cd plugins/recipe-lint && go build -o recipe-lint .)
+
+# Install into the isolated WK_HOME
+PLUGIN_DEST="$WK_HOME/plugins/recipe-lint"
+mkdir -p "$PLUGIN_DEST"
+cp plugins/recipe-lint/recipe-lint "$PLUGIN_DEST/"
+cp plugins/recipe-lint/plugin.toml "$PLUGIN_DEST/"
+
+# Verify it's discovered
+$WK plugins list
+# Expected: recipe-lint 0.1.0
+
+# Push should invoke the hook (passthrough stub allows it)
+cd "$TESTDIR"
+$WK push --dry-run
+# Expected: no hook warnings (--dry-run skips hooks)
+
+$WK push
+# Expected: hook runs, passthrough allows push to proceed (will fail at API stage without auth)
+
+$WK push --skip-hooks
+# Expected: hooks skipped entirely
+```
+
+### Automated smoke tests
+
+The `test/smoke_hooks.sh` script automates the above patterns. It builds both binaries into a temp directory, sets up `WK_HOME` and `HOME`, scaffolds test fixtures, and validates hook behavior end-to-end:
+
+```sh
+./test/smoke_hooks.sh
+```
+
+It covers: no-plugin push, passthrough plugin, `--skip-hooks`, `--dry-run`, failing plugin diagnostics, and bypass of failures with `--skip-hooks`.
+
+### Quick reference
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `WK_HOME` | Override `~/.wk/` for plugins | `$HOME/.wk` |
+| `HOME` | Override home dir for auth/keyring | System home |
+
+| Flag | Effect |
+|------|--------|
+| `--skip-hooks` | Skip all plugin pre-push hooks |
+| `--dry-run` | Show what would be pushed; hooks are not invoked |
+
+### Cleanup
+
+Temp directories created with `mktemp -d` persist until you delete them or reboot. Clean up after a session:
+
+```sh
+# If you saved the paths:
+rm -rf "$WK_HOME" "$HOME" "$TESTDIR"
+
+# Or to be safe, find recent tmpdir artifacts:
+ls -dt /tmp/tmp.* | head -5
+```
+
+---
+
 ## Group 1: Local Tests (no API token)
 
 These tests verify project lifecycle, auth UX, plugin system, and output formatting without any network calls.
@@ -425,6 +592,11 @@ Expected: error about invalid region.
 
 | # | Test | Group | Pass Criteria |
 |---|---|---|---|
+| 0.1 | Empty dir behavior | Isolated | `status`/`push` error cleanly; `version` works |
+| 0.2 | Fresh init | Isolated | `wk.toml` created; status says no assets |
+| 0.3 | Existing project | Isolated | New files detected as "new" in status |
+| 0.4 | Plugin hooks | Isolated | `WK_HOME` isolation; passthrough, skip, dry-run all correct |
+| 0.5 | `test/smoke_hooks.sh` | Isolated | All 7 automated checks pass |
 | 1.1 | `wk version` | Local | Prints version string; `--json` returns valid JSON |
 | 1.2 | `wk --help` tree | Local | All commands listed with descriptions |
 | 1.3 | `wk init` | Local | Creates valid `wk.toml`; fails if exists; JSON mode works |
