@@ -12,21 +12,21 @@ import (
 	"github.com/workato-devs/wk-cli-beta/internal/sync"
 )
 
-// resolveSyncEntry finds the matching sync entry in config.
-// If folder is empty, returns the first entry.
-func resolveSyncEntry(cfg *config.Config, folder string) (config.SyncEntry, error) {
+// resolveSyncEntries returns the sync entries to operate on.
+// If folder is empty, returns all entries. Otherwise returns the matching entry.
+func resolveSyncEntries(cfg *config.Config, folder string) ([]config.SyncEntry, error) {
 	if len(cfg.Sync) == 0 {
-		return config.SyncEntry{}, wkerrors.ErrNoSyncEntries
+		return nil, wkerrors.ErrNoSyncEntries
 	}
 	if folder == "" {
-		return cfg.Sync[0], nil
+		return cfg.Sync, nil
 	}
 	for _, entry := range cfg.Sync {
 		if entry.ServerPath == folder || entry.LocalPath == folder {
-			return entry, nil
+			return []config.SyncEntry{entry}, nil
 		}
 	}
-	return config.SyncEntry{}, fmt.Errorf("no sync entry matching %q", folder)
+	return nil, fmt.Errorf("no sync entry matching %q", folder)
 }
 
 func newPullCmd() *cobra.Command {
@@ -48,7 +48,7 @@ func newPullCmd() *cobra.Command {
 				return wkerrors.ErrNotInProject
 			}
 
-			entry, err := resolveSyncEntry(rctx.Config, flagFolder)
+			entries, err := resolveSyncEntries(rctx.Config, flagFolder)
 			if err != nil {
 				return err
 			}
@@ -59,12 +59,16 @@ func newPullCmd() *cobra.Command {
 			}
 
 			engine := sync.NewSyncEngine(rctx.ProjectRoot, rctx.Config, client)
-			results, err := engine.Pull(entry, flagForce)
-			if err != nil {
-				return err
+			var allResults []sync.PullResult
+			for _, entry := range entries {
+				results, err := engine.Pull(entry, flagForce)
+				if err != nil {
+					return err
+				}
+				allResults = append(allResults, results...)
 			}
 
-			if len(results) == 0 {
+			if len(allResults) == 0 {
 				if !rctx.Quiet {
 					fmt.Fprintln(os.Stderr, "No assets to pull.")
 				}
@@ -73,7 +77,7 @@ func newPullCmd() *cobra.Command {
 
 			headers := []string{"FILE", "ACTION"}
 			var rows [][]string
-			for _, r := range results {
+			for _, r := range allResults {
 				rows = append(rows, []string{r.FilePath, r.Action})
 			}
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
@@ -107,15 +111,17 @@ func newPushCmd() *cobra.Command {
 				return wkerrors.ErrNotInProject
 			}
 
-			entry, err := resolveSyncEntry(rctx.Config, flagFolder)
+			entries, err := resolveSyncEntries(rctx.Config, flagFolder)
 			if err != nil {
 				return err
 			}
 
-			// Run pre-push hooks unless skipped, dry-run, or no registry.
+			// Run pre-push hooks first (local-only, no API client needed).
 			if !flagSkipHooks && !flagDryRun && rctx.PluginRegistry != nil {
-				if err := runPrePushHooks(rctx, entry); err != nil {
-					return err
+				for _, entry := range entries {
+					if err := runPrePushHooks(rctx, entry); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -125,12 +131,16 @@ func newPushCmd() *cobra.Command {
 			}
 
 			engine := sync.NewSyncEngine(rctx.ProjectRoot, rctx.Config, client)
-			results, err := engine.Push(entry, flagDryRun, flagPreserveState)
-			if err != nil {
-				return err
+			var allResults []sync.PushResult
+			for _, entry := range entries {
+				results, err := engine.Push(entry, flagDryRun, flagPreserveState)
+				if err != nil {
+					return err
+				}
+				allResults = append(allResults, results...)
 			}
 
-			if len(results) == 0 {
+			if len(allResults) == 0 {
 				if !rctx.Quiet {
 					fmt.Fprintln(os.Stderr, "No changes to push.")
 				}
@@ -143,7 +153,7 @@ func newPushCmd() *cobra.Command {
 
 			headers := []string{"FILE", "ACTION"}
 			var rows [][]string
-			for _, r := range results {
+			for _, r := range allResults {
 				rows = append(rows, []string{r.FilePath, r.Action})
 			}
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
@@ -222,19 +232,23 @@ func newStatusCmd() *cobra.Command {
 				return wkerrors.ErrNotInProject
 			}
 
-			entry, err := resolveSyncEntry(rctx.Config, flagFolder)
+			entries, err := resolveSyncEntries(rctx.Config, flagFolder)
 			if err != nil {
 				return err
 			}
 
 			// Status is local-only; no API client needed.
 			engine := sync.NewSyncEngine(rctx.ProjectRoot, rctx.Config, nil)
-			statuses, err := engine.Status(entry)
-			if err != nil {
-				return err
+			var allStatuses []sync.AssetStatus
+			for _, entry := range entries {
+				statuses, err := engine.Status(entry)
+				if err != nil {
+					return err
+				}
+				allStatuses = append(allStatuses, statuses...)
 			}
 
-			if len(statuses) == 0 {
+			if len(allStatuses) == 0 {
 				if !rctx.Quiet {
 					fmt.Fprintln(os.Stderr, "No synced assets found.")
 				}
@@ -243,7 +257,7 @@ func newStatusCmd() *cobra.Command {
 
 			headers := []string{"FILE", "STATUS", "SERVER PATH"}
 			var rows [][]string
-			for _, s := range statuses {
+			for _, s := range allStatuses {
 				rows = append(rows, []string{s.FilePath, string(s.Status), s.ServerPath})
 			}
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
@@ -271,7 +285,7 @@ func newDiffCmd() *cobra.Command {
 				return wkerrors.ErrNotInProject
 			}
 
-			entry, err := resolveSyncEntry(rctx.Config, flagFolder)
+			entries, err := resolveSyncEntries(rctx.Config, flagFolder)
 			if err != nil {
 				return err
 			}
@@ -282,12 +296,16 @@ func newDiffCmd() *cobra.Command {
 			}
 
 			engine := sync.NewSyncEngine(rctx.ProjectRoot, rctx.Config, client)
-			diffs, err := engine.Diff(entry)
-			if err != nil {
-				return err
+			var allDiffs []sync.DiffEntry
+			for _, entry := range entries {
+				diffs, err := engine.Diff(entry)
+				if err != nil {
+					return err
+				}
+				allDiffs = append(allDiffs, diffs...)
 			}
 
-			if len(diffs) == 0 {
+			if len(allDiffs) == 0 {
 				if !rctx.Quiet {
 					fmt.Fprintln(os.Stderr, "No differences found.")
 				}
@@ -296,7 +314,7 @@ func newDiffCmd() *cobra.Command {
 
 			headers := []string{"PATH", "STATUS", "LOCAL HASH", "REMOTE HASH"}
 			var rows [][]string
-			for _, d := range diffs {
+			for _, d := range allDiffs {
 				localHash := truncateHash(d.LocalHash)
 				remoteHash := truncateHash(d.RemoteHash)
 				rows = append(rows, []string{d.Path, string(d.Type), localHash, remoteHash})
