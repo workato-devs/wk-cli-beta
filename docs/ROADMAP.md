@@ -11,7 +11,7 @@
 |----------|-------|--------|-----------|
 | **P0** | Workspace isolation check | **Done** | Safety — prevents cross-workspace push/pull accidents |
 | **P1** | Phase 3: Platform coverage | **Done** (P1.3 CRUD blocked) | Tags, API Platform, Workspace, MCP test/tools complete |
-| **P2** | Phase 2: Core CRUD expansion | **Done** (validate deferred) | Recipe, connection, connector, folder commands complete |
+| **P2** | Phase 2: Core CRUD expansion | **Done** | Recipe, connection, connector, folder commands complete |
 | **P3** | Phase 1: Foundation gaps | Not started | Auth tiers 1 & 4, --toml output, --no-color |
 | **P4** | Phase 4: Plugins & polish | Partial | pre-push hooks done; skills, bidirectional RPC, migrate not started |
 
@@ -62,10 +62,9 @@ Files: `internal/mcp/client.go`, `internal/commands/mcp.go`.
 `wk workspace info/users/audit-log`.
 Files: `internal/api/workspace.go`, `internal/commands/workspace.go`, `internal/api/workspace_test.go`.
 
-### P2.1 — Recipe Gaps (Mostly complete)
+### P2.1 — Recipe Gaps (Complete)
 
-**Done:** `wk recipes jobs`, `wk recipes copy`, `wk recipes update-connection`.
-**Deferred:** `wk recipes validate` (local JSON schema validation) — low priority, no blocking dependency.
+**Done:** `wk recipes jobs`, `wk recipes copy`, `wk recipes update-connection`, `wk recipes validate` (thin alias to `wk lint` plugin).
 
 ### P2.2 — Connection Gaps (Complete)
 
@@ -120,13 +119,6 @@ wk mcp get <id-or-name>
 wk mcp create --name <name> --collection <id>
 wk mcp update <id> [--name NAME] [--collections IDS]
 wk mcp delete <id>
-```
-
-### P2.1 — Recipe Validate (Deferred)
-
-```
-wk recipes validate <path>       → local JSON schema validation
-wk recipes validate <id>         → remote validation (if API supports)
 ```
 
 ### P3.1 — Auth Tier 1: Secrets Managers
@@ -283,7 +275,7 @@ The Workato Dev API MCP server at `app.trial.workato.com` exposes 160 tools acro
 | MCP test/tools (protocol-level) | n/a | P1.3 | **Done** |
 | `users` + `members` | 6 | P1.4 | **Done** |
 | `activity_logs` | 1 | P1.4 | **Done** |
-| `recipes` (remaining) | 12 | P2.1 | **Done** (validate deferred) |
+| `recipes` (remaining) | 12 | P2.1 | **Done** |
 | `connections` (remaining) | 3 | P2.2 | **Done** |
 | `integrations` | 2 | P2.3 | **Done** (list only — API-limited) |
 | `folders` (remaining) | 2 | P2.4 | **Done** |

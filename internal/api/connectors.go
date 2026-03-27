@@ -18,9 +18,11 @@ func (s *connectorService) List(ctx context.Context, search string) ([]Connector
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
-	var result []Connector
-	if err := s.client.do(ctx, "GET", path, nil, &result); err != nil {
+	var wrapper struct {
+		Result []Connector `json:"result"`
+	}
+	if err := s.client.do(ctx, "GET", path, nil, &wrapper); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return wrapper.Result, nil
 }

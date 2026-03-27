@@ -3,12 +3,14 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
+	"github.com/workato-devs/wk-cli-beta/internal/plugin"
 )
 
 func newRecipesCmd() *cobra.Command {
@@ -26,6 +28,7 @@ func newRecipesCmd() *cobra.Command {
 	cmd.AddCommand(newRecipesJobsCmd())
 	cmd.AddCommand(newRecipesCopyCmd())
 	cmd.AddCommand(newRecipesConnectCmd())
+	cmd.AddCommand(newRecipeValidateCmd())
 	return cmd
 }
 
@@ -432,5 +435,54 @@ func newRecipesConnectCmd() *cobra.Command {
 	cmd.Flags().IntVar(&connectionID, "connection", 0, "Connection ID")
 	_ = cmd.MarkFlagRequired("adapter")
 	_ = cmd.MarkFlagRequired("connection")
+	return cmd
+}
+
+// newRecipeValidateCmd creates a "validate" subcommand that delegates to the
+// recipe-lint plugin's lint.run method. This is a thin alias so that
+// `wk recipes validate <path>` behaves identically to `wk lint <path>`.
+func newRecipeValidateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "validate <path> [paths...]",
+		Short: "Validate recipe files (delegates to recipe-lint plugin)",
+		Long: `Validate one or more Workato recipe JSON files using the recipe-lint plugin.
+
+This is an alias for "wk lint" — it uses the same tiered validation engine.
+The recipe-lint plugin must be installed (wk plugins install <path>).`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg, err := plugin.NewRegistry()
+			if err != nil {
+				return fmt.Errorf("recipe-lint plugin not installed. Run: wk plugins install <path>")
+			}
+
+			pluginDir, err := reg.GetPluginDir("recipe-lint")
+			if err != nil {
+				return fmt.Errorf("recipe-lint plugin not installed. Run: wk plugins install <path>")
+			}
+
+			// Verify the manifest is readable.
+			m, err := plugin.LoadManifest(filepath.Join(pluginDir, "plugin.toml"))
+			if err != nil {
+				return fmt.Errorf("recipe-lint plugin manifest unreadable: %w", err)
+			}
+			_ = m
+
+			def := &pluginCmdDef{
+				Args: []plugin.Arg{{Name: "files", Description: "Recipe files to lint", Required: true}},
+				Flags: []plugin.Flag{
+					{Name: "tiers", Description: "Lint tier levels to run", Type: "int-array"},
+					{Name: "skills-path", Description: "Path to connector skills directory", Type: "string"},
+					{Name: "config-path", Description: "Path to lint configuration file", Type: "string"},
+				},
+			}
+
+			return makePluginRunE(pluginDir, "lint.run", def)(cmd, args)
+		},
+	}
+
+	cmd.Flags().IntSlice("tiers", nil, "Lint tier levels to run")
+	cmd.Flags().String("skills-path", "", "Path to connector skills directory")
+	cmd.Flags().String("config-path", "", "Path to lint configuration file")
 	return cmd
 }

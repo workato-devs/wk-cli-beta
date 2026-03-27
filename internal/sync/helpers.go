@@ -75,7 +75,14 @@ func (e *SyncEngine) waitForPackage(ctx context.Context, pkgID int) error {
 		case "completed", "succeeded":
 			return nil
 		case "failed", "error":
-			return fmt.Errorf("export failed (package %d): status %s", pkgID, pkg.Status)
+			msg := fmt.Sprintf("export failed (package %d): status %s", pkgID, pkg.Status)
+			if pkg.Error != "" {
+				msg += ": " + pkg.Error
+			}
+			if len(pkg.ErrorParts) > 0 {
+				msg += fmt.Sprintf(" (details: %v)", pkg.ErrorParts)
+			}
+			return fmt.Errorf("%s", msg)
 		}
 
 		time.Sleep(pollInterval)
@@ -100,7 +107,14 @@ func (e *SyncEngine) waitForImport(ctx context.Context, importID int) error {
 		case "completed", "succeeded":
 			return nil
 		case "failed", "error":
-			return fmt.Errorf("import failed (import %d): status %s", importID, pkg.Status)
+			msg := fmt.Sprintf("import failed (import %d): status %s", importID, pkg.Status)
+			if pkg.Error != "" {
+				msg += ": " + pkg.Error
+			}
+			if len(pkg.ErrorParts) > 0 {
+				msg += fmt.Sprintf(" (details: %v)", pkg.ErrorParts)
+			}
+			return fmt.Errorf("%s", msg)
 		}
 
 		time.Sleep(pollInterval)

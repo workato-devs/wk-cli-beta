@@ -17,7 +17,9 @@ func TestConnectorService_List(t *testing.T) {
 			t.Errorf("path = %s, want /integrations", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]Connector{{Name: "salesforce", Title: "Salesforce"}})
+		json.NewEncoder(w).Encode(map[string]any{
+			"result": []Connector{{Name: "salesforce", Title: "Salesforce"}},
+		})
 	}))
 	defer srv.Close()
 
@@ -37,7 +39,9 @@ func TestConnectorService_ListWithSearch(t *testing.T) {
 			t.Errorf("applications = %q, want slack", r.URL.Query().Get("applications"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]Connector{{Name: "slack", Title: "Slack"}})
+		json.NewEncoder(w).Encode(map[string]any{
+			"result": []Connector{{Name: "slack", Title: "Slack"}},
+		})
 	}))
 	defer srv.Close()
 

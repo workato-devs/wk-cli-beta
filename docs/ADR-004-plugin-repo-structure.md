@@ -230,7 +230,7 @@ This means plugins can be written in any language. A Python linter, a Rust forma
 | `pkg/lint/` in CLI monorepo | `pkg/lint/` in `wk-lint-beta` repo | Compile-time coupling undermines JSON-RPC protocol boundary |
 | Plugin binary at `wk-cli-beta/plugins/recipe-lint/` | Plugin binary at `wk-lint-beta/cmd/recipe-lint/` | Independent repo, independent releases |
 | GoReleaser builds plugin alongside CLI | Plugin has its own `Makefile` + build | Independent build pipeline |
-| `validate` subcommand alias | Not yet wired | Deferred to CLI `wk recipes` command integration |
+| `validate` subcommand alias | Implemented as `wk recipes validate` in `recipe.go` | Thin alias delegates to `lint.run` via plugin RPC |
 
 ---
 
@@ -270,4 +270,4 @@ This means plugins can be written in any language. A Python linter, a Rust forma
 9. [x] Implement connector-specific `lint-rules.json` loading
 10. [ ] Build plugin registry/marketplace for remote install
 11. [ ] Add `wk plugins update` command
-12. [ ] Wire `wk recipes validate` alias to lint plugin
+12. [x] Wire `wk recipes validate` alias to lint plugin
