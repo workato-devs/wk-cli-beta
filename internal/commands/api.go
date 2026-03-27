@@ -57,12 +57,15 @@ func newAPICollectionsListCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, collections)
 			}
 
-			headers := []string{"ID", "NAME", "PROJECT ID"}
+			headers := []string{"ID", "NAME", "HANDLE", "VERSION", "DESCRIPTION", "PROJECT ID"}
 			var rows [][]string
 			for _, c := range collections {
 				rows = append(rows, []string{
 					strconv.Itoa(c.ID),
 					c.Name,
+					c.Handle,
+					c.Version,
+					c.Description,
 					strconv.Itoa(c.ProjectID),
 				})
 			}
@@ -156,7 +159,7 @@ func newAPIEndpointsListCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, endpoints)
 			}
 
-			headers := []string{"ID", "NAME", "COLLECTION ID", "ACTIVE"}
+			headers := []string{"ID", "NAME", "METHOD", "PATH", "RECIPE ID", "COLLECTION ID", "ACTIVE"}
 			var rows [][]string
 			for _, e := range endpoints {
 				active := "no"
@@ -166,6 +169,9 @@ func newAPIEndpointsListCmd() *cobra.Command {
 				rows = append(rows, []string{
 					strconv.Itoa(e.ID),
 					e.Name,
+					e.Method,
+					e.Path,
+					strconv.Itoa(e.RecipeID),
 					strconv.Itoa(e.APICollectionID),
 					active,
 				})

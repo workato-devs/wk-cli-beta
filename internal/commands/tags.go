@@ -52,10 +52,10 @@ func newTagsListCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, tags)
 			}
 
-			headers := []string{"HANDLE", "TITLE", "COLOR"}
+			headers := []string{"HANDLE", "TITLE", "DESCRIPTION", "COLOR"}
 			var rows [][]string
 			for _, t := range tags {
-				rows = append(rows, []string{t.Handle, t.Title, t.Color})
+				rows = append(rows, []string{t.Handle, t.Title, t.Description, t.Color})
 			}
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
 		},

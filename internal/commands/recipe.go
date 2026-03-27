@@ -62,7 +62,7 @@ func newRecipesListCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, recipes)
 			}
 
-			headers := []string{"ID", "NAME", "FOLDER", "RUNNING", "VERSION"}
+			headers := []string{"ID", "NAME", "DESCRIPTION", "FOLDER", "RUNNING", "VERSION"}
 			var rows [][]string
 			for _, r := range recipes {
 				running := "stopped"
@@ -72,6 +72,7 @@ func newRecipesListCmd() *cobra.Command {
 				rows = append(rows, []string{
 					strconv.Itoa(r.ID),
 					r.Name,
+					r.Description,
 					strconv.Itoa(r.FolderID),
 					running,
 					strconv.Itoa(r.Version),
@@ -131,7 +132,9 @@ func newRecipesGetCmd() *cobra.Command {
 }
 
 func newRecipesStartCmd() *cobra.Command {
-	return &cobra.Command{
+	var noWait bool
+
+	cmd := &cobra.Command{
 		Use:   "start <id>",
 		Short: "Start a recipe",
 		Args:  cobra.ExactArgs(1),
@@ -150,10 +153,34 @@ func newRecipesStartCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Recipe %d started\n", id)
-			return nil
+			if noWait {
+				fmt.Fprintf(os.Stdout, "Recipe %d start requested\n", id)
+				return nil
+			}
+
+			// Poll to verify the recipe actually became active.
+			const timeout = 30 * time.Second
+			const interval = 2 * time.Second
+			deadline := time.Now().Add(timeout)
+
+			for time.Now().Before(deadline) {
+				recipe, err := client.Recipes().Get(cmd.Context(), id)
+				if err != nil {
+					return fmt.Errorf("checking recipe status: %w", err)
+				}
+				if recipe.Running && recipe.Active {
+					fmt.Fprintf(os.Stdout, "Recipe %d started and active\n", id)
+					return nil
+				}
+				time.Sleep(interval)
+			}
+
+			return fmt.Errorf("recipe %d did not become active within %s", id, timeout)
 		},
 	}
+
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Do not wait for recipe to become active")
+	return cmd
 }
 
 func newRecipesStopCmd() *cobra.Command {

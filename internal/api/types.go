@@ -38,11 +38,13 @@ type Folder struct {
 
 // Package represents an RLCM export/import package.
 type Package struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         int       `json:"id"`
+	Name       string    `json:"name"`
+	Status     string    `json:"status"`
+	Error      string    `json:"error,omitempty"`
+	ErrorParts []any     `json:"error_parts,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ExportManifest represents a Workato RLCM export manifest.
@@ -101,9 +103,13 @@ type TagUpdateOptions struct {
 
 // APICollection represents a Workato API collection.
 type APICollection struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	ProjectID int    `json:"project_id"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Handle      string `json:"handle,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Description string `json:"description,omitempty"`
+	UsePrefix   bool   `json:"use_prefix,omitempty"`
+	ProjectID   int    `json:"project_id"`
 }
 
 // APIEndpoint represents a Workato API endpoint.
@@ -112,6 +118,9 @@ type APIEndpoint struct {
 	Name            string `json:"name"`
 	APICollectionID int    `json:"api_collection_id"`
 	Active          bool   `json:"active"`
+	Method          string `json:"method,omitempty"`
+	Path            string `json:"path,omitempty"`
+	RecipeID        int    `json:"recipe_id,omitempty"`
 }
 
 // PaginationOptions provides generic pagination parameters.

@@ -156,6 +156,10 @@ func inferAssetType(path string) string {
 		return "recipe"
 	case strings.Contains(lower, "connection"):
 		return "connection"
+	case strings.HasSuffix(lower, ".api_endpoint.json"):
+		return "api_endpoint"
+	case strings.HasSuffix(lower, ".api_group.json"):
+		return "api_collection"
 	default:
 		return "unknown"
 	}

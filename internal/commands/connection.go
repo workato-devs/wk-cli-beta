@@ -68,7 +68,7 @@ func newConnectionsListCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, conns)
 			}
 
-			headers := []string{"ID", "NAME", "APPLICATION", "STATUS"}
+			headers := []string{"ID", "NAME", "APPLICATION", "FOLDER", "STATUS"}
 			var rows [][]string
 			for _, c := range conns {
 				status := "not connected"
@@ -81,6 +81,7 @@ func newConnectionsListCmd() *cobra.Command {
 					strconv.Itoa(c.ID),
 					c.Name,
 					c.Application,
+					strconv.Itoa(c.FolderID),
 					status,
 				})
 			}

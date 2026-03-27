@@ -17,7 +17,7 @@ func TestAPICollectionService_List(t *testing.T) {
 			t.Errorf("path = %s, want /api_collections", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]APICollection{{ID: 1, Name: "v1", ProjectID: 10}})
+		json.NewEncoder(w).Encode([]APICollection{{ID: 1, Name: "v1", Handle: "v1-handle", Version: "1.0", Description: "test collection", UsePrefix: true, ProjectID: 10}})
 	}))
 	defer srv.Close()
 
@@ -28,6 +28,19 @@ func TestAPICollectionService_List(t *testing.T) {
 	}
 	if len(collections) != 1 || collections[0].Name != "v1" {
 		t.Errorf("got %+v, want 1 collection named v1", collections)
+	}
+	c := collections[0]
+	if c.Handle != "v1-handle" {
+		t.Errorf("Handle = %q, want %q", c.Handle, "v1-handle")
+	}
+	if c.Version != "1.0" {
+		t.Errorf("Version = %q, want %q", c.Version, "1.0")
+	}
+	if c.Description != "test collection" {
+		t.Errorf("Description = %q, want %q", c.Description, "test collection")
+	}
+	if !c.UsePrefix {
+		t.Error("UsePrefix = false, want true")
 	}
 }
 

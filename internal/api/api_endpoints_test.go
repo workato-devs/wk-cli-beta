@@ -17,7 +17,7 @@ func TestAPIEndpointService_List(t *testing.T) {
 			t.Errorf("api_collection_id = %q, want 5", cid)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]APIEndpoint{{ID: 1, Name: "ep1", APICollectionID: 5, Active: true}})
+		json.NewEncoder(w).Encode([]APIEndpoint{{ID: 1, Name: "ep1", APICollectionID: 5, Active: true, Method: "GET", Path: "/users", RecipeID: 42}})
 	}))
 	defer srv.Close()
 
@@ -29,6 +29,16 @@ func TestAPIEndpointService_List(t *testing.T) {
 	}
 	if len(endpoints) != 1 || !endpoints[0].Active {
 		t.Errorf("got %+v, want 1 active endpoint", endpoints)
+	}
+	ep := endpoints[0]
+	if ep.Method != "GET" {
+		t.Errorf("Method = %q, want %q", ep.Method, "GET")
+	}
+	if ep.Path != "/users" {
+		t.Errorf("Path = %q, want %q", ep.Path, "/users")
+	}
+	if ep.RecipeID != 42 {
+		t.Errorf("RecipeID = %d, want 42", ep.RecipeID)
 	}
 }
 
