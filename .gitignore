@@ -18,3 +18,8 @@ plugins/example/example
 # Test artifacts
 *.test
 coverage.out
+
+# Development artifacts
+TODO.md
+HANDOFF.md
+.env

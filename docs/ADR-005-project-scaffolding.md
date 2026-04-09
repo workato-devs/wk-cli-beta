@@ -1,28 +1,34 @@
-# ADR-005: Project Scaffolding — Container Folder Convention
+# ADR-005: Project Scaffolding — Container Folder, `.wk/` Directory, and Ignore Semantics
 
 **Status:** Proposed
-**Date:** March 26, 2026
+**Date:** March 26, 2026 (revised April 8, 2026)
 **Author:** Zayne Turner
 **Deciders:** DevRel Engineering
 **References:** ADR-001 (Foundational Architecture), ADR-002 (Sync Engine), Tester Feedback (Greenfield Project Setup)
+
+> This revision supersedes the April 1, 2026 amendment on sidecar metadata location by integrating those decisions into the main body. It also adds decisions for folder ID caching, init overwrite behavior, and `.wkignore` support.
 
 ---
 
 ## Context
 
-Tester feedback from the CLI beta identified a gap between expected and actual behavior when setting up a greenfield project (initializing in a completely empty folder with no existing Workato project structure).
+Tester feedback from the CLI beta identified several gaps between expected and actual behavior when setting up and managing projects:
 
-**Expected behavior:** Running setup commands in an empty folder should produce a self-contained project directory named after the project. The `wk.toml` config file and all synced artifacts live inside this container folder. Nothing exists outside it.
+1. **No container folder.** `wk init` creates `wk.toml` in the current working directory with no named container. `wk clone` creates a named directory. The two commands produce structurally different outcomes for what should be a consistent convention.
 
-**Actual behavior (as of ADR-002):** `wk init` creates `wk.toml` in the current working directory with no container folder. The developer's CWD *becomes* the project root, but there is no named directory wrapping the project. `wk clone` is closer — it creates a named directory and places `wk.toml` inside — but the two commands produce structurally different outcomes for what should be a consistent convention.
+2. **Tool-managed files mixed with developer files.** `wk.toml` and `.wk-meta.json` sidecar files sit alongside pushable assets, creating clutter and confusion. Developers encounter files they didn't create and don't understand.
 
-This inconsistency creates confusion for developers starting new projects. A developer who runs `wk init --name my-project` in `~/workato/` expects to find `~/workato/my-project/wk.toml`, not `~/workato/wk.toml`. The container folder convention also aligns with how `git init <name>`, `cargo new <name>`, and `npm init` behave — creating a named directory is the standard pattern for project scaffolding in CLI tools.
+3. **No folder ID caching.** Every `pull`, `push`, and `diff` resolves the remote folder hierarchy via API calls. This is slow and unnecessary after the first resolution.
+
+4. **No overwrite path for `wk init`.** If `wk.toml` already exists, `wk init` hard-errors with no option to reinitialize. CI/CD and agent workflows need a non-interactive overwrite path.
+
+5. **No ignore mechanism.** Developers cannot exclude files from sync. There is no `.wkignore` or equivalent to prevent certain assets from being pulled or pushed.
 
 ---
 
 ## Decision
 
-Adopt a container folder convention: `wk init --name X` creates `X/` in the current working directory and places `wk.toml` inside it. `wk clone` aligns with the same convention. The container folder is the project root — all artifacts, metadata, and configuration live within it.
+Adopt a container folder convention where all tool-managed state — project config, sidecar metadata, and sync state — lives inside a `.wk/` directory at the project root. Add folder ID caching in `wk.toml`, overwrite support for `wk init`, and a `.wkignore` file for user-defined sync exclusions.
 
 ---
 
@@ -30,23 +36,29 @@ Adopt a container folder convention: `wk init --name X` creates `X/` in the curr
 
 ### Decision 1: Container Folder Is the Project Root
 
-**Decision:** `wk init --name my-project` creates `my-project/` in the CWD and writes `wk.toml` inside `my-project/`. Nothing is created outside the container.
+**Decision:** `wk init --name my-project` creates `my-project/` in the CWD. All tool-managed files live inside `my-project/.wk/`. Asset directories contain only pushable/pullable content.
 
 **Expected structure:**
 
 ```
 ~/workato/                              (developer's CWD)
 └── my-project/                         (container = project root)
-    ├── wk.toml                         (project config)
+    ├── .wk/                            (tool-managed — gitignored)
+    │   ├── wk.toml                     (project config)
+    │   ├── meta.json                   (project-level metadata)
+    │   ├── recipes/
+    │   │   └── my_recipe.meta.json     (remote hash, last push timestamp, asset ID)
+    │   └── connections/
+    │       └── slack.meta.json
+    ├── .gitignore                      (includes /.wk/)
+    ├── .wkignore                       (user-defined ignore patterns)
     ├── recipes/                        (created by first pull)
-    │   ├── my_recipe.recipe.json
-    │   └── my_recipe.recipe.json.wk-meta.json
+    │   └── my_recipe.recipe.json
     └── connections/                    (created by first pull)
-        ├── slack.connection.json
-        └── slack.connection.json.wk-meta.json
+        └── slack.connection.json
 ```
 
-**Why:** Developers expect named projects to produce named directories. This matches established conventions from Git, Cargo, npm, and other CLI tools. It also prevents a common mistake: running `wk init` in a directory that contains other unrelated work, which would make the entire directory a wk project.
+**Why:** `.wk/` is to `wk` what `.git/` is to `git`. Consolidating all tool-managed state into a single directory means the project root contains only developer-facing files. No sidecar metadata clutters asset directories. A single `.gitignore` entry (`/.wk/`) covers all current and future tool-managed files.
 
 **Consequence:** `wk init` no longer treats the CWD as the project root. It always creates (or scaffolds into) a child directory. Developers who want the current directory to be the project root should use `wk clone` from the parent, or manually create the directory and run `wk init` from within it (though this is not the recommended workflow).
 
@@ -56,48 +68,73 @@ Adopt a container folder convention: `wk init --name X` creates `X/` in the curr
 
 1. Check that the CWD is not already inside an existing wk project (see Decision 3)
 2. Compute target path: `<CWD>/<project-name>/`
-3. If target directory exists and already contains `wk.toml` → error
-4. If target directory exists but has no `wk.toml` → scaffold into it (add `wk.toml`)
+3. If target directory contains `.wk/wk.toml`:
+   - **Interactive mode:** Prompt "Project config already exists. Overwrite? [y/N]". Abort on decline.
+   - **Non-interactive mode (`--json`):** Error unless `--overwrite` flag is set.
+4. If target directory exists but has no `.wk/wk.toml` → scaffold into it (create `.wk/`, add `wk.toml`)
 5. If target directory does not exist → create it with `os.MkdirAll`
-6. Write `wk.toml` inside the target directory
+6. Create `.wk/` directory inside the target
+7. Write `wk.toml` inside `.wk/`
+8. Append `/.wk/` to the project's `.gitignore` (create file if necessary)
 
-**Why:** Step 4 (scaffold into existing directory) supports the case where a developer has already created a directory or initialized a Git repository before running `wk init`. Requiring a completely empty directory would be unnecessarily restrictive. Step 3 prevents accidentally re-initializing a project that already exists.
+**Why:** Step 3 replaces the previous hard-error behavior. Interactive prompting gives developers control. The `--overwrite` flag supports CI/CD and agent workflows where interactive prompts are unavailable. Step 4 (scaffold into existing directory) supports the case where a developer has already created a directory or initialized a Git repository before running `wk init`. Step 8 ensures tool-managed files never leak into version control.
 
-**Implementation:** `internal/commands/init.go` — Replace the CWD-based config path with `filepath.Join(cwd, name)` as the project root. Create directory before saving config.
+**Implementation:** `internal/commands/init.go` — Replace the CWD-based config path with `filepath.Join(cwd, name, ".wk", "wk.toml")` as the config path. Create `.wk/` directory before saving config. Add `--overwrite` flag.
 
 ### Decision 3: Error When Already Inside a Project
 
-**Decision:** If `FindProjectRoot(cwd)` successfully locates a `wk.toml` in the CWD or any parent directory, `wk init` exits with an error:
+**Decision:** If `FindProjectRoot(cwd)` successfully locates a `.wk/wk.toml` in the CWD or any parent directory, `wk init` exits with an error:
 
 ```
-Error: already inside wk project at /path/to/wk.toml
+Error: already inside wk project at /path/to/my-project/.wk/wk.toml
 Run from outside the project directory.
 ```
 
-**Why:** Nested wk projects would create ambiguity for every other command (`pull`, `push`, `status`, `diff`) because `FindProjectRoot` walks upward and stops at the first `wk.toml` it finds. A nested project's `wk.toml` would shadow the parent, or vice versa depending on the developer's CWD. Rather than introducing complex resolution logic, prevent nesting entirely.
+**Why:** Nested wk projects would create ambiguity for every other command (`pull`, `push`, `status`, `diff`) because `FindProjectRoot` walks upward and stops at the first `.wk/wk.toml` it finds. A nested project's config would shadow the parent, or vice versa depending on the developer's CWD. Rather than introducing complex resolution logic, prevent nesting entirely.
 
 **Consequence:** Developers who genuinely need multiple wk projects in the same tree must keep them as siblings, not nested. This matches how Git repositories work — nested `.git` directories are an antipattern.
 
 ### Decision 4: `wk clone` Alignment
 
-**Decision:** `wk clone` already creates a named directory and places `wk.toml` inside it. The following adjustments align it with the `wk init` convention:
+**Decision:** `wk clone` aligns with `wk init` by creating the same `.wk/` directory structure:
 
-- The `Name` field in `wk.toml` should always match the container folder name
-- Clone should also check that the CWD is not already inside an existing project (same guard as init)
+- Creates `<local-path>/.wk/` and writes `wk.toml` inside
+- Writes `folder_id` to the sync entry immediately (since clone resolves the folder during setup)
+- Adds `/.wk/` to `.gitignore`
+- Checks that the CWD is not already inside an existing project (same nesting guard as init)
+- The `Name` field in `wk.toml` matches the container folder name
 
 **Why:** Both commands should produce the same structural outcome. A developer should be able to look at a project directory and not know whether it was created by `init + pull` or by `clone`.
 
-**Implementation:** `internal/commands/clone.go` — Add the `FindProjectRoot` guard. Ensure `cfg.Name` is set from the directory name, not just the server folder name (they may differ if `--local-path` is used).
+**Implementation:** `internal/commands/clone.go` — Add the `FindProjectRoot` guard. Write config to `.wk/wk.toml`. Ensure `cfg.Name` is set from the directory name, not just the server folder name (they may differ if `--local-path` is used).
 
-### Decision 5: `FindProjectRoot` Unchanged
+### Decision 5: `FindProjectRoot` Changes
 
-**Decision:** The `FindProjectRoot` function in `internal/config/config.go` requires no modification. It walks upward looking for `wk.toml` and returns the directory containing it — this behavior is correct for the new layout because `wk.toml` lives inside the container folder.
+**Decision:** `FindProjectRoot` walks upward looking for `.wk/wk.toml` instead of a bare `wk.toml`. The function returns the **parent** of `.wk/` (i.e., the project root directory), not the `.wk/` directory itself.
 
-**Why:** The container folder *is* the project root. `FindProjectRoot` returns the directory containing `wk.toml`, which is the container. All relative paths in `wk.toml` (like `local_path = "."`) resolve correctly relative to the container.
+Introduce a `ProjectDir` constant alongside the existing `ProjectFile`:
+
+```go
+const ProjectDir  = ".wk"
+const ProjectFile = "wk.toml"
+```
+
+`FindProjectRoot` changes from:
+```go
+configPath := filepath.Join(dir, ProjectFile)
+```
+to:
+```go
+configPath := filepath.Join(dir, ProjectDir, ProjectFile)
+```
+
+**Why:** The project root is the container directory — the directory developers `cd` into, where asset folders and `.wkignore` live. `.wk/` is an implementation detail inside the project root, not the root itself. Returning the parent of `.wk/` means all relative paths (`local_path` in sync entries, `.wkignore` pattern evaluation) resolve naturally from the project root.
+
+**Impact:** Every call site that currently does `filepath.Join(projectRoot, config.ProjectFile)` must change to `filepath.Join(projectRoot, config.ProjectDir, config.ProjectFile)`. This is a pervasive but mechanical change affecting `init.go`, `clone.go`, `link.go`, and `root.go`'s `BuildRunContext`.
 
 ### Decision 6: Sync `local_path` Semantics
 
-**Decision:** `local_path` in `[[sync]]` entries is relative to the project root (the directory containing `wk.toml`). With the container convention, this means relative to the container folder. The default `local_path` for init should be `"."` (same as clone), meaning artifacts are extracted directly into the project root.
+**Decision:** `local_path` in `[[sync]]` entries is relative to the project root (the parent of `.wk/`). With the container convention, this means relative to the container folder. The default `local_path` for init should be `"."` (same as clone), meaning artifacts are extracted directly into the project root.
 
 **Why:** This makes `wk init --name my-project --server-path "Recipes/Prod"` followed by `wk pull` produce the same layout as `wk clone "Recipes/Prod" --local-path my-project`. Consistency between the two workflows.
 
@@ -107,9 +144,97 @@ Run from outside the project directory.
 
 ### Decision 7: Inner Directory Layout Is Not Pre-Scaffolded
 
-**Decision:** `wk init` does not pre-create subdirectories like `recipes/`, `connections/`, etc. These are created by the pull/extract logic when assets are first downloaded.
+**Decision:** `wk init` creates `.wk/` (because it must contain `wk.toml`), but does not pre-create subdirectories like `recipes/`, `connections/`, or `.wk/recipes/`. These are created by the sync engine when assets are first pulled or pushed.
 
-**Why:** The inner directory structure depends on what assets exist on the server. Pre-creating empty directories would be misleading (implying assets exist when they don't) and would need to be kept in sync with the server's asset types. The RLCM zip extraction already handles directory creation correctly.
+**Why:** The inner directory structure depends on what assets exist on the server. Pre-creating empty directories would be misleading (implying assets exist when they don't) and would need to be kept in sync with the server's asset types. The RLCM zip extraction already handles directory creation correctly. The same applies to metadata subdirectories within `.wk/` — they are created when metadata is first written.
+
+### Decision 8: `.wk/` Is Fully Gitignored
+
+**Decision:** The entire `.wk/` directory is added to the project's `.gitignore` during `wk init` and `wk clone`. No files within `.wk/` are version-controlled.
+
+`wk init` and `wk clone` append the following to `<project-root>/.gitignore` (creating the file if necessary):
+
+```
+# wk CLI — tool-managed directory
+/.wk/
+```
+
+**Why:**
+
+- **`wk.toml` contains environment-specific references.** The `workspace` field references a local auth profile. Different developers may use different profiles (personal tokens, team tokens, staging vs. production). Committing `wk.toml` would force a shared workspace identity or create constant merge conflicts.
+- **`folder_id` values are environment-specific.** Folder IDs may differ between Workato environments (staging workspace vs. production workspace). A committed `folder_id` from one developer's workspace would be meaningless to another.
+- **Sidecar metadata is machine-local.** Content hashes, pull timestamps, and zip entry names are per-developer state used for diff tracking. They have no meaning outside the machine that produced them.
+- **Single `.gitignore` entry.** One line (`/.wk/`) covers all current and future tool-managed files. No risk of metadata leaking into source control as new file types are added.
+
+**Precedent:** `cargo new` adds `/target/` to `.gitignore`. `npm init` adds `/node_modules/`. The tool-managed directory is always gitignored by default.
+
+### Decision 9: Remote Folder IDs in `wk.toml`
+
+**Decision:** Add a `folder_id` field to `SyncEntry` that caches the resolved Workato folder ID:
+
+```toml
+[[sync]]
+server_path = "All projects/Recipes/Production"
+local_path = "."
+folder_id = 12345
+```
+
+**Behavior:**
+
+- **`wk pull` / `wk push` / `wk diff`:** If `folder_id` is set and non-zero on the sync entry, use it directly — skip the `resolveFolderID` API call. If it is zero or absent, resolve via the folder hierarchy API and write the resolved ID back to `wk.toml` (write-through cache).
+- **`wk init`:** `folder_id` starts as 0 (omitted from TOML via `omitempty`). It is populated on the first pull or push.
+- **`wk clone`:** Writes `folder_id` immediately since clone resolves the folder during setup.
+- **Invalidation:** If the API returns a 404 or "folder not found" for a cached `folder_id`, fall back to `resolveFolderID` by path, update the cached ID in `wk.toml`, and retry the operation.
+
+**Why:** `resolveFolderID` walks the folder hierarchy via multiple API calls (one `GET /folders` per path segment). For a three-level path, that is three sequential API calls on every pull/push. Caching the resolved ID eliminates this overhead after the first sync. The write-through pattern means developers never need to manually populate `folder_id` — it is resolved and cached automatically.
+
+**Config struct change:**
+
+```go
+type SyncEntry struct {
+    ServerPath string   `toml:"server_path"`
+    LocalPath  string   `toml:"local_path"`
+    FolderID   int      `toml:"folder_id,omitempty"`
+    Include    []string `toml:"include,omitempty"`
+}
+```
+
+### Decision 10: `.wkignore` File
+
+**Decision:** Support a `.wkignore` file at the project root (sibling to `.wk/`, outside it) that specifies patterns the CLI should skip during push and pull operations.
+
+**Location:** `<project-root>/.wkignore`. This file is version-controlled (it lives outside `.wk/`) so that team members share the same ignore rules.
+
+**Format:** Gitignore-style glob patterns.
+
+- One pattern per line. Blank lines and lines starting with `#` are ignored.
+- Patterns follow gitignore semantics: `*` matches within a single path component, `**` matches across path separators, a trailing `/` matches only directories, a leading `!` negates a previous pattern.
+- Patterns are evaluated relative to the project root.
+- `.wk/` is implicitly ignored by the sync engine regardless of `.wkignore` content.
+- If `.wkignore` does not exist, no patterns are applied (default: include everything).
+
+**Example `.wkignore`:**
+
+```
+# Ignore test fixtures
+test_fixtures/
+
+# Ignore backup files
+*.bak
+*.tmp
+```
+
+**Scope:** `.wkignore` affects `push`, `pull`, `status`, and `diff`. It does NOT affect what the Workato API exports — it only controls what the CLI writes locally (pull) or includes in the upload zip (push).
+
+**Why gitignore format:**
+
+1. **Developer familiarity.** Every developer who uses Git knows gitignore syntax. Zero learning curve.
+2. **Agent familiarity.** AI agents have extensive training data on `.gitignore` files. Asking an agent to "add `*.tmp` to `.wkignore`" works immediately.
+3. **Directory pruning.** Patterns with a trailing `/` enable `filepath.SkipDir` to prune entire subtrees during tree walking, avoiding unnecessary I/O.
+4. **Library support.** Go has mature gitignore-pattern libraries (e.g., `go-gitignore`, `doublestar`). No custom parser required.
+5. **Comments and negation.** Developers can document why patterns exist (`# Ignore test fixtures`) and selectively un-ignore files (`!recipes/keep_this.recipe.json`). A TOML list or YAML array cannot express these.
+
+**Implementation:** New file `internal/sync/ignore.go` — loads `.wkignore` from project root, compiles patterns, exposes a `Match(path string) bool` function. The `filepath.Walk` calls in `status.go`, `pull.go`, `push.go`, and `diff.go` check each path against the compiled patterns.
 
 ---
 
@@ -117,14 +242,14 @@ Run from outside the project directory.
 
 | Command | Change Required | Details |
 |---------|----------------|---------|
-| `wk init` | **Yes** | Create container directory, write `wk.toml` inside it, add nesting guard |
-| `wk clone` | **Minor** | Add nesting guard, ensure `Name` matches directory name |
-| `wk pull` | **None** | Already resolves paths relative to `wk.toml` location |
-| `wk push` | **None** | Already resolves paths relative to `wk.toml` location |
-| `wk status` | **None** | Already resolves paths relative to `wk.toml` location |
-| `wk diff` | **None** | Already resolves paths relative to `wk.toml` location |
-| `wk link` | **None** | Operates on an existing `wk.toml`, no scaffolding involved |
-| `FindProjectRoot` | **None** | Upward walk for `wk.toml` still works |
+| `wk init` | **Yes** | Create `.wk/` dir, write config inside, `.gitignore` entry, overwrite prompt/flag, nesting guard |
+| `wk clone` | **Yes** | Same `.wk/` scaffolding as init, write `folder_id`, nesting guard |
+| `wk pull` | **Yes** | Read metadata from `.wk/`, respect `.wkignore`, use cached `folder_id` |
+| `wk push` | **Yes** | Read metadata from `.wk/`, respect `.wkignore`, use cached `folder_id` |
+| `wk status` | **Yes** | Read metadata from `.wk/`, respect `.wkignore` |
+| `wk diff` | **Yes** | Read metadata from `.wk/`, respect `.wkignore`, use cached `folder_id` |
+| `wk link` | **Minor** | Config path changes to `.wk/wk.toml` |
+| `FindProjectRoot` | **Yes** | Walk up looking for `.wk/wk.toml` instead of bare `wk.toml` |
 
 ---
 
@@ -132,27 +257,47 @@ Run from outside the project directory.
 
 ### What Becomes Easier
 
-- **Greenfield setup**: Developers get a clean, named project directory with a single command. No need to manually create directories or reason about where `wk.toml` should live.
+- **Greenfield setup**: Developers get a clean, named project directory with a single command. No need to manually create directories or reason about where config should live.
 - **Multi-project workspaces**: Developers can have multiple wk projects as siblings in the same parent directory, each in its own named container.
-- **Mental model**: "The project name is the folder name" is simple and matches how most CLI tools work.
+- **Mental model**: "The project name is the folder name" and "`.wk/` is the tool directory" are simple, match established conventions (Git, Cargo, npm).
+- **Clean asset directories**: No sidecar metadata files appear alongside developer code. Asset directories contain only pushable/pullable content.
+- **Fast folder resolution**: After the first sync, `folder_id` is cached in `wk.toml`. Subsequent pull/push operations skip the multi-call folder hierarchy walk.
+- **Shared ignore rules**: `.wkignore` is version-controlled, ensuring consistent sync behavior across team members and CI.
+- **Gitignore is foolproof**: One entry (`/.wk/`) covers all current and future tool-managed files.
 
 ### What Becomes Harder
 
 - **In-place initialization**: Developers who want the CWD itself to be the project root (no container subdirectory) can no longer do this with `wk init`. This workflow is uncommon and can be worked around by creating the directory manually.
+- **Debugging metadata**: Inspecting sidecar metadata requires navigating into `.wk/` rather than seeing it next to the asset. Mitigated by `wk status` showing metadata state.
+- **Parallel directory maintenance**: The CLI must maintain the parallel directory structure inside `.wk/` when assets are moved or renamed.
+- **Pervasive `FindProjectRoot` change**: Every command that loads config must update its path from `projectRoot/wk.toml` to `projectRoot/.wk/wk.toml`. This is mechanical but touches many files.
 
 ### Migration
 
-This is a **breaking change** for any existing projects initialized with the current `wk init` behavior (where `wk.toml` lives at the CWD level without a container folder). Since the CLI is in beta, this is acceptable. Existing projects can be migrated by:
+This is a **breaking change** for any existing projects initialized with the current `wk init` behavior (where `wk.toml` lives at the project root without a `.wk/` directory). Since the CLI is in beta, this is acceptable. Existing projects can be migrated by:
 
-1. Creating the container directory
-2. Moving `wk.toml` and all synced artifacts into it
-3. All relative paths in `wk.toml` remain valid (they're relative to `wk.toml`'s location)
+1. Creating the `.wk/` directory in the project root
+2. Moving `wk.toml` from the project root into `.wk/`
+3. Moving all `.wk-meta.json` sidecar files into the `.wk/` mirror structure (strip the `.wk-meta.json` suffix, rewrite as `.meta.json` under `.wk/<relative-path>/`)
+4. Adding `/.wk/` to `.gitignore`
+5. Removing old `.wk-meta.json` files from asset directories
+6. All relative paths in `wk.toml` remain valid (they are relative to the project root, which is the parent of `.wk/`)
+
+This migration can be automated via a `wk migrate` command (see Action Items).
 
 ---
 
 ## Action Items
 
-1. [ ] Update `internal/commands/init.go` — container directory creation, nesting guard, default `local_path = "."`
-2. [ ] Update `internal/commands/clone.go` — nesting guard, `Name` alignment
-3. [ ] Update tests for init and clone to verify container folder behavior
-4. [ ] Update CLI help text for `wk init` and `wk clone` to reflect the new convention
+1. [ ] Update `internal/config/config.go` — add `ProjectDir` constant (`.wk`), update `FindProjectRoot` to look for `.wk/wk.toml`
+2. [ ] Add `FolderID int` field to `SyncEntry` struct with `toml:"folder_id,omitempty"`
+3. [ ] Update `internal/commands/init.go` — create `.wk/` dir, write config inside, write `.gitignore`, add `--overwrite` flag, add interactive overwrite prompt, add nesting guard, default `local_path` to `"."`
+4. [ ] Update `internal/commands/clone.go` — same `.wk/` scaffolding, write `folder_id`, add nesting guard
+5. [ ] Update `internal/commands/link.go` — config path now under `.wk/`
+6. [ ] Update `internal/sync/helpers.go` — `resolveFolderID` fast path when `FolderID` is set on entry, write-through cache to config
+7. [ ] Implement `.wkignore` parser in new file `internal/sync/ignore.go` — gitignore-pattern matching with `Match(path) bool`
+8. [ ] Update `internal/sync/status.go`, `pull.go`, `push.go`, `diff.go` to respect `.wkignore` patterns
+9. [ ] Update `internal/sync/meta.go` — metadata path derivation to `.wk/<relative>/asset.meta.json`, remove co-located `.wk-meta.json` sidecar logic
+10. [ ] Update all tests (`config_test.go`, `init_test.go`, `meta_test.go`, `pull_test.go`, `helpers_test.go`)
+11. [ ] Update CLI help text for `wk init`, `wk clone`, `wk link`
+12. [ ] Implement `wk migrate` command for existing beta projects
