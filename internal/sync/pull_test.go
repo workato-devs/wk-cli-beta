@@ -1,6 +1,56 @@
 package sync
 
-import "testing"
+import (
+	"testing"
+)
+
+func TestIsJSON(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"recipe.json", true},
+		{"folder/recipe.JSON", true},
+		{"folder/recipe.Json", true},
+		{"recipe.txt", false},
+		{"json", false},
+		{"folder/data.json.bak", false},
+	}
+	for _, tt := range tests {
+		if got := isJSON(tt.path); got != tt.want {
+			t.Errorf("isJSON(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestNormalizeJSON(t *testing.T) {
+	// Unsorted keys, inconsistent whitespace.
+	input := []byte(`{"z":1,"a":2, "m": {"b":3,"a":4}}`)
+	got, err := normalizeJSON(input)
+	if err != nil {
+		t.Fatalf("normalizeJSON() error: %v", err)
+	}
+	want := "{\n  \"a\": 2,\n  \"m\": {\n    \"a\": 4,\n    \"b\": 3\n  },\n  \"z\": 1\n}\n"
+	if string(got) != want {
+		t.Errorf("normalizeJSON() =\n%s\nwant:\n%s", got, want)
+	}
+
+	// Idempotency: normalizing the output again should produce the same bytes.
+	got2, err := normalizeJSON(got)
+	if err != nil {
+		t.Fatalf("normalizeJSON(normalized) error: %v", err)
+	}
+	if string(got2) != string(got) {
+		t.Errorf("normalizeJSON is not idempotent:\nfirst:  %s\nsecond: %s", got, got2)
+	}
+}
+
+func TestNormalizeJSON_InvalidInput(t *testing.T) {
+	_, err := normalizeJSON([]byte("not json"))
+	if err == nil {
+		t.Error("normalizeJSON(non-JSON) should return an error")
+	}
+}
 
 func TestInferAssetType(t *testing.T) {
 	tests := []struct {

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -102,6 +103,13 @@ func (e *SyncEngine) extractZip(zipData []byte, localDir string, serverPath stri
 		relPath := filepath.ToSlash(f.Name)
 		relPath = strings.TrimPrefix(relPath, "/")
 
+		// Normalize JSON to prevent phantom diffs from server-side reformatting.
+		if isJSON(relPath) {
+			if normalized, err := normalizeJSON(data); err == nil {
+				data = normalized
+			}
+		}
+
 		absPath := filepath.Join(localDir, filepath.FromSlash(relPath))
 		newHash := ComputeHash(data)
 
@@ -146,6 +154,24 @@ func (e *SyncEngine) extractZip(zipData []byte, localDir string, serverPath stri
 	}
 
 	return results, nil
+}
+
+// isJSON returns true if the file path has a .json extension.
+func isJSON(path string) bool {
+	return strings.HasSuffix(strings.ToLower(path), ".json")
+}
+
+// normalizeJSON re-serializes JSON with sorted keys and consistent indentation.
+func normalizeJSON(data []byte) ([]byte, error) {
+	var obj interface{}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, err
+	}
+	out, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(out, '\n'), nil
 }
 
 // inferAssetType guesses the asset type from a filename.

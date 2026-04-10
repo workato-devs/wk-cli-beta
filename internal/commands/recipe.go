@@ -136,6 +136,7 @@ func newRecipesGetCmd() *cobra.Command {
 
 func newRecipesStartCmd() *cobra.Command {
 	var noWait bool
+	var pollTimeout int
 
 	cmd := &cobra.Command{
 		Use:   "start <id>",
@@ -162,7 +163,11 @@ func newRecipesStartCmd() *cobra.Command {
 			}
 
 			// Poll to verify the recipe actually became active.
-			const timeout = 30 * time.Second
+			pt := pollTimeout
+			if pt > 600 {
+				pt = 600
+			}
+			timeout := time.Duration(pt) * time.Second
 			const interval = 2 * time.Second
 			deadline := time.Now().Add(timeout)
 
@@ -183,6 +188,7 @@ func newRecipesStartCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "Do not wait for recipe to become active")
+	cmd.Flags().IntVar(&pollTimeout, "poll-timeout", 120, "Seconds to wait for recipe to become active (max 600)")
 	return cmd
 }
 
