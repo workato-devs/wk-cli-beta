@@ -30,20 +30,33 @@ func verifyServerPath(cmd *cobra.Command, client api.Client, serverPath string) 
 	}
 
 	folders := client.Folders()
+
+	// Fetch the full folder list once (unfiltered) so we can resolve
+	// top-level workspace folders whose parent_id is the implicit home
+	// folder — the API never returns the home folder itself, so filtering
+	// by parent_id=nil would find nothing.
+	allFolders, err := folders.List(cmd.Context(), nil)
+	if err != nil {
+		return fmt.Errorf("verifying server path: %w", err)
+	}
+
 	var parentID *int
 	for _, name := range parts {
-		list, err := folders.List(cmd.Context(), parentID)
-		if err != nil {
-			return fmt.Errorf("verifying server path: %w", err)
-		}
 		found := false
-		for _, f := range list {
-			if strings.EqualFold(f.Name, name) {
-				id := f.ID
-				parentID = &id
-				found = true
-				break
+		for _, f := range allFolders {
+			if !strings.EqualFold(f.Name, name) {
+				continue
 			}
+			// For the first segment, match by name only (top-level folders
+			// sit under the implicit home folder whose ID we don't know).
+			// For deeper segments, also require the parent ID to match.
+			if parentID != nil && (f.ParentID == nil || *f.ParentID != *parentID) {
+				continue
+			}
+			id := f.ID
+			parentID = &id
+			found = true
+			break
 		}
 		if !found {
 			return fmt.Errorf("server path %q not found: folder %q does not exist", serverPath, name)
