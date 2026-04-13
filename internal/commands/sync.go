@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -182,7 +183,7 @@ func runPrePushHooks(rctx *RunContext, entry config.SyncEntry) error {
 	hookFiles := make([]plugin.HookFile, len(statuses))
 	for i, s := range statuses {
 		hookFiles[i] = plugin.HookFile{
-			Path:       s.FilePath,
+			Path:       filepath.Join(entry.LocalPath, s.FilePath),
 			Status:     string(s.Status),
 			ServerPath: s.ServerPath,
 		}
