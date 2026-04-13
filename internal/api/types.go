@@ -79,13 +79,6 @@ type ListResult[T any] struct {
 	Items []T `json:"items"`
 }
 
-// ResultList is a generic wrapper for API responses that return
-// {"result":[...]}, e.g. tags, connections, folders, connectors,
-// api_collections, api_endpoints, members, and activity_logs.
-type ResultList[T any] struct {
-	Result []T `json:"result"`
-}
-
 // Tag represents a Workato tag.
 type Tag struct {
 	Handle      string `json:"handle"`
@@ -161,11 +154,15 @@ type WorkspaceUser struct {
 
 // AuditLogEntry represents a Workato audit log entry.
 type AuditLogEntry struct {
-	ID        int       `json:"id"`
-	EventType string    `json:"event_type"`
-	UserID    int       `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Details   any       `json:"details,omitempty"`
+	ID        int    `json:"id"`
+	EventType string `json:"event_type"`
+	Timestamp string `json:"timestamp"`
+	User      struct {
+		ID    int    `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	} `json:"user"`
+	Details any `json:"details,omitempty"`
 }
 
 // AuditLogOptions configures audit log filtering.

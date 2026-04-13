@@ -24,11 +24,11 @@ func (s *apiCollectionService) List(ctx context.Context, opts *PaginationOptions
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
-	var result ResultList[APICollection]
+	var result []APICollection
 	if err := s.client.do(ctx, "GET", path, nil, &result); err != nil {
 		return nil, err
 	}
-	return result.Result, nil
+	return result, nil
 }
 
 func (s *apiCollectionService) Create(ctx context.Context, name string, projectID int) (*APICollection, error) {

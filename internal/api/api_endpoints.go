@@ -28,11 +28,11 @@ func (s *apiEndpointService) List(ctx context.Context, collectionID *int, opts *
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
-	var result ResultList[APIEndpoint]
+	var result []APIEndpoint
 	if err := s.client.do(ctx, "GET", path, nil, &result); err != nil {
 		return nil, err
 	}
-	return result.Result, nil
+	return result, nil
 }
 
 func (s *apiEndpointService) Enable(ctx context.Context, id int) error {

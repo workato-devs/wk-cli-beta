@@ -28,11 +28,15 @@ func (s *tagService) List(ctx context.Context, opts *TagListOptions) ([]Tag, err
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
-	var result ResultList[Tag]
-	if err := s.client.do(ctx, "GET", path, nil, &result); err != nil {
+	var wrapper struct {
+		Data struct {
+			Tags []Tag `json:"tags"`
+		} `json:"data"`
+	}
+	if err := s.client.do(ctx, "GET", path, nil, &wrapper); err != nil {
 		return nil, err
 	}
-	return result.Result, nil
+	return wrapper.Data.Tags, nil
 }
 
 func (s *tagService) Create(ctx context.Context, title, description, color string) (*Tag, error) {

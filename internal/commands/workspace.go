@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -126,14 +125,14 @@ func newWorkspaceAuditLogCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, entries)
 			}
 
-			headers := []string{"ID", "EVENT TYPE", "USER ID", "CREATED AT"}
+			headers := []string{"ID", "EVENT TYPE", "USER", "TIMESTAMP"}
 			var rows [][]string
 			for _, e := range entries {
 				rows = append(rows, []string{
 					strconv.Itoa(e.ID),
 					e.EventType,
-					strconv.Itoa(e.UserID),
-					e.CreatedAt.Format(time.RFC3339),
+					e.User.Email,
+					e.Timestamp,
 				})
 			}
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
