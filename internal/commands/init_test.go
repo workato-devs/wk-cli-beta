@@ -1,13 +1,47 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/workato-devs/wk-cli-beta/internal/auth"
 	"github.com/workato-devs/wk-cli-beta/internal/config"
 )
+
+// setupTestHome creates a temporary HOME directory with a .wk/profiles.json
+// containing a "dev" profile, and sets it as the active profile. Returns a
+// cleanup function that restores the original HOME.
+func setupTestHome(t *testing.T) func() {
+	t.Helper()
+	origHome := os.Getenv("HOME")
+
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+
+	wkDir := filepath.Join(tmpHome, ".wk")
+	os.MkdirAll(wkDir, 0700)
+
+	profiles := []*auth.Profile{
+		{
+			Name:        "dev",
+			Workspace:   "test-workspace",
+			Environment: "dev",
+			Region:      auth.RegionUS,
+			StoreType:   auth.StoreKeychain,
+			BaseURL:     "https://www.workato.com",
+		},
+	}
+	data, _ := json.Marshal(profiles)
+	os.WriteFile(filepath.Join(wkDir, "profiles.json"), data, 0600)
+	os.WriteFile(filepath.Join(wkDir, "active_profile"), []byte("dev"), 0600)
+
+	return func() {
+		os.Setenv("HOME", origHome)
+	}
+}
 
 func TestInitLocalPathDefaults(t *testing.T) {
 	tests := []struct {
@@ -44,6 +78,9 @@ func TestInitLocalPathDefaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			cleanupHome := setupTestHome(t)
+			defer cleanupHome()
+
 			dir := t.TempDir()
 			origDir, _ := os.Getwd()
 			os.Chdir(dir)
@@ -66,7 +103,7 @@ func TestInitLocalPathDefaults(t *testing.T) {
 				t.Fatalf("init failed: %v", err)
 			}
 
-			// Init now creates a container directory: <cwd>/test-proj/wk.toml
+			// Init creates a container directory: <cwd>/test-proj/wk.toml
 			cfg, err := config.Load(filepath.Join(dir, "test-proj", config.ProjectFile))
 			if err != nil {
 				t.Fatalf("loading config: %v", err)
@@ -82,6 +119,9 @@ func TestInitLocalPathDefaults(t *testing.T) {
 }
 
 func TestInitCreatesContainerDirectory(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -123,6 +163,9 @@ func TestInitCreatesContainerDirectory(t *testing.T) {
 }
 
 func TestInitScaffoldsIntoExistingDir(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -151,6 +194,9 @@ func TestInitScaffoldsIntoExistingDir(t *testing.T) {
 }
 
 func TestInitErrorsOnExistingProject(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -195,5 +241,61 @@ func TestInitNestingGuard(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "inside an existing wk project") {
 		t.Errorf("error = %q, want nesting guard message", err.Error())
+	}
+}
+
+func TestInitProfileValidation(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Use a profile that doesn't exist.
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "my-project", "--profile", "nonexistent", "--json"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected profile not found error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error = %q, want profile not found message", err.Error())
+	}
+}
+
+func TestInitActiveProfileMismatch(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	// Add a second profile "staging" but keep "dev" as active.
+	tmpHome := os.Getenv("HOME")
+	pm := &auth.ProfileManager{Dir: filepath.Join(tmpHome, ".wk")}
+	pm.SaveProfile(&auth.Profile{
+		Name:        "staging",
+		Workspace:   "test-workspace",
+		Environment: "staging",
+		Region:      auth.RegionUS,
+		StoreType:   auth.StoreKeychain,
+		BaseURL:     "https://www.workato.com",
+	})
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Active is "dev" but we target "staging" — should fail.
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "my-project", "--profile", "staging", "--json"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected active profile mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("error = %q, want active profile mismatch message", err.Error())
 	}
 }

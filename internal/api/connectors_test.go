@@ -18,7 +18,7 @@ func TestConnectorService_List(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"result": []Connector{{Name: "salesforce", Title: "Salesforce"}},
+			"items": []Connector{{Name: "salesforce", Title: "Salesforce"}},
 		})
 	}))
 	defer srv.Close()
@@ -40,7 +40,7 @@ func TestConnectorService_ListWithSearch(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"result": []Connector{{Name: "slack", Title: "Slack"}},
+			"items": []Connector{{Name: "slack", Title: "Slack"}},
 		})
 	}))
 	defer srv.Close()

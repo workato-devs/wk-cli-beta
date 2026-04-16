@@ -20,8 +20,11 @@ func TestTagService_List(t *testing.T) {
 			t.Errorf("q = %q, want %q", q, "test")
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// Production expects {"data": {"tags": [...]}}.
 		json.NewEncoder(w).Encode(map[string]any{
-				"result": []Tag{{Handle: "h1", Title: "Tag 1"}},
+				"data": map[string]any{
+					"tags": []Tag{{Handle: "h1", Title: "Tag 1"}},
+				},
 			})
 	}))
 	defer srv.Close()

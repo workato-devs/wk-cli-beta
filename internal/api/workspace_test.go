@@ -38,7 +38,7 @@ func TestWorkspaceService_ListMembers(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-				"result": []WorkspaceUser{{ID: 2, Name: "Bob", Email: "bob@example.com"}},
+				"data": []WorkspaceUser{{ID: 2, Name: "Bob", Email: "bob@example.com"}},
 			})
 	}))
 	defer srv.Close()
@@ -66,7 +66,11 @@ func TestWorkspaceService_GetAuditLogs(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-				"result": []AuditLogEntry{{ID: 1, EventType: "recipe_started", UserID: 10}},
+				"data": []AuditLogEntry{{ID: 1, EventType: "recipe_started", User: struct {
+						ID    int    `json:"id"`
+						Name  string `json:"name"`
+						Email string `json:"email"`
+					}{ID: 10}}},
 			})
 	}))
 	defer srv.Close()

@@ -112,8 +112,8 @@ func TestStructFieldCoverage(t *testing.T) {
 			name:       "AuditLogEntry",
 			structType: reflect.TypeOf(AuditLogEntry{}),
 			expectedFields: []string{
-				"id", "event_type", "user_id",
-				"created_at", "details",
+				"id", "event_type", "timestamp",
+				"user", "details",
 			},
 		},
 		{
@@ -170,7 +170,7 @@ func TestStructFieldCoverage_TableColumns(t *testing.T) {
 		"APIEndpoint":   {"id", "name", "method", "path", "recipe_id", "api_collection_id", "active"},
 		"Tag":           {"handle", "title", "description", "color"},
 		"WorkspaceUser": {"id", "name", "email"},
-		"AuditLogEntry": {"id", "event_type", "user_id", "created_at"},
+		"AuditLogEntry": {"id", "event_type", "user", "timestamp"},
 		"Connector":     {"name", "title", "description"},
 	}
 

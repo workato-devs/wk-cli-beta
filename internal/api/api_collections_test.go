@@ -17,9 +17,8 @@ func TestAPICollectionService_List(t *testing.T) {
 			t.Errorf("path = %s, want /api_collections", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-				"result": []APICollection{{ID: 1, Name: "v1", Handle: "v1-handle", Version: "1.0", Description: "test collection", UsePrefix: true, ProjectID: 10}},
-			})
+		// Production expects raw array (no wrapper).
+		json.NewEncoder(w).Encode([]APICollection{{ID: 1, Name: "v1", Handle: "v1-handle", Version: "1.0", Description: "test collection", UsePrefix: true, ProjectID: 10}})
 	}))
 	defer srv.Close()
 
