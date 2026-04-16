@@ -10,8 +10,35 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
+	"github.com/workato-devs/wk-cli-beta/internal/auth"
 	"github.com/workato-devs/wk-cli-beta/internal/config"
+	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 )
+
+// resolveVerifyClient builds an API client for the named profile, used by
+// init --verify. This resolves region from the profile rather than relying
+// on the global resolveAPIClient path.
+func resolveVerifyClient(cmd *cobra.Command, profileName string) (api.Client, error) {
+	pm := auth.NewProfileManager()
+	profile, err := pm.GetProfile(profileName)
+	if err != nil {
+		return nil, fmt.Errorf("profile %q not found — run 'wk auth login' first", profileName)
+	}
+
+	store := auth.NewChainStore(&auth.EnvStore{}, &auth.KeyringStore{})
+	cred, err := store.Get(cmd.Context(), profileName)
+	if err != nil {
+		return nil, fmt.Errorf("no credentials for profile %q: %w", profileName, err)
+	}
+
+	var opts []api.ClientOption
+	if flagVerbose {
+		opts = append(opts, api.WithVerbose(true))
+	}
+
+	client := api.NewHTTPClient(profile.BaseURL+config.APIPathPrefix, cred.Token, opts...)
+	return client, nil
+}
 
 // verifyServerPath walks the Workato folder hierarchy to confirm that
 // serverPath exists. Returns nil on success or a descriptive error.
@@ -67,16 +94,17 @@ func verifyServerPath(cmd *cobra.Command, client api.Client, serverPath string) 
 
 func newInitCmd() *cobra.Command {
 	var (
-		flagName       string
-		flagProfile    string
-		flagServerPath string
-		flagLocalPath  string
-		flagVerify     bool
+		flagName        string
+		flagInitProfile string
+		flagServerPath  string
+		flagLocalPath   string
+		flagVerify      bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize a new wk project in the current directory",
+		Short: "Initialize a new wk project",
+		Long:  "Create a new wk project directory with a wk.toml config file.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -89,14 +117,13 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("getting current directory: %w", err)
 			}
 
-			// Check if wk.toml already exists in the current directory.
-			configPath := filepath.Join(cwd, config.ProjectFile)
-			if _, err := os.Stat(configPath); err == nil {
-				return fmt.Errorf("wk.toml already exists. Use 'wk link' to update the linked profile.")
+			// Nesting guard: prevent creating a project inside an existing one.
+			if projectRoot, err := config.FindProjectRoot(cwd); err == nil {
+				return fmt.Errorf("%w at %s — run from outside the project directory", wkerrors.ErrNestedProject, projectRoot)
 			}
 
 			name := flagName
-			profile := flagProfile
+			profile := flagInitProfile
 
 			if flagJSON {
 				// Non-interactive: require --name and --profile.
@@ -127,6 +154,20 @@ func newInitCmd() *cobra.Command {
 				}
 			}
 
+			// Resolve the target directory: <cwd>/<name>/
+			targetDir := filepath.Join(cwd, name)
+			configPath := filepath.Join(targetDir, config.ProjectFile)
+
+			// Check if target already contains a wk.toml.
+			if _, err := os.Stat(configPath); err == nil {
+				return fmt.Errorf("project %q already exists at %s", name, targetDir)
+			}
+
+			// Create the container directory (no-op if it already exists).
+			if err := os.MkdirAll(targetDir, 0755); err != nil {
+				return fmt.Errorf("creating project directory: %w", err)
+			}
+
 			cfg := &config.Config{
 				Name:    name,
 				Profile: profile,
@@ -135,13 +176,11 @@ func newInitCmd() *cobra.Command {
 			if flagServerPath != "" {
 				localPath := flagLocalPath
 				if localPath == "" {
-					// Default to "./<leaf of server path>" so local folders mirror server hierarchy.
-					parts := strings.Split(strings.Trim(flagServerPath, "/"), "/")
-					localPath = "./" + parts[len(parts)-1]
+					localPath = "."
 				}
 
 				if flagVerify {
-					client, _, err := resolveAPIClient(cmd)
+					client, err := resolveVerifyClient(cmd, profile)
 					if err != nil {
 						return fmt.Errorf("--verify requires auth: %w", err)
 					}
@@ -178,10 +217,10 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&flagName, "name", "", "Project name")
-	cmd.Flags().StringVar(&flagProfile, "profile", "", "Auth profile name")
+	cmd.Flags().StringVar(&flagName, "name", "", "Project name (also the container directory name)")
+	cmd.Flags().StringVar(&flagInitProfile, "profile", "", "Auth profile name")
 	cmd.Flags().StringVar(&flagServerPath, "server-path", "", "Initial sync server path")
-	cmd.Flags().StringVar(&flagLocalPath, "local-path", "", "Initial sync local path (defaults to server-path leaf)")
+	cmd.Flags().StringVar(&flagLocalPath, "local-path", "", "Initial sync local path (defaults to \".\")")
 	cmd.Flags().BoolVar(&flagVerify, "verify", false, "Validate server-path exists on Workato before saving")
 
 	return cmd

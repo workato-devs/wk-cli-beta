@@ -12,8 +12,9 @@ var (
 	ErrProfileMismatch    = errors.New("active profile does not match project's configured profile")
 
 	// Project errors
-	ErrNotInProject  = errors.New("not in a wk project directory (no wk.toml found)")
-	ErrProjectExists = errors.New("wk.toml already exists in this directory")
+	ErrNotInProject    = errors.New("not in a wk project directory (no wk.toml found)")
+	ErrProjectExists   = errors.New("wk.toml already exists in this directory")
+	ErrNestedProject   = errors.New("cannot create project inside an existing wk project")
 
 	// Sync errors
 	ErrSyncConflict   = errors.New("sync conflict: local and remote changes detected")

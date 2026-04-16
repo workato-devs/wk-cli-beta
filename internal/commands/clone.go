@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/config"
+	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 	"github.com/workato-devs/wk-cli-beta/internal/sync"
 )
 
@@ -25,6 +26,15 @@ func newCloneCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			folderName := args[0]
 
+			// Nesting guard: prevent cloning inside an existing project.
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting current directory: %w", err)
+			}
+			if projectRoot, err := config.FindProjectRoot(cwd); err == nil {
+				return fmt.Errorf("%w at %s — run from outside the project directory", wkerrors.ErrNestedProject, projectRoot)
+			}
+
 			// Determine local directory
 			localPath := flagLocalPath
 			if localPath == "" {
@@ -41,14 +51,14 @@ func newCloneCmd() *cobra.Command {
 				return fmt.Errorf("creating directory: %w", err)
 			}
 
-			// Build config
+			// Build config — Name matches the actual directory, not the server folder.
 			serverPath := folderName
 			if flagPathPrefix != "" {
 				serverPath = flagPathPrefix + "/" + folderName
 			}
 
 			cfg := &config.Config{
-				Name: folderName,
+				Name: filepath.Base(absPath),
 				Sync: []config.SyncEntry{
 					{
 						ServerPath: serverPath,
