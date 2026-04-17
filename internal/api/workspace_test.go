@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestWorkspaceService_GetCurrentUser(t *testing.T) {
+func TestWorkspaceService_GetCurrentWorkspace(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
 			t.Errorf("method = %s, want GET", r.Method)
@@ -17,17 +17,23 @@ func TestWorkspaceService_GetCurrentUser(t *testing.T) {
 			t.Errorf("path = %s, want /users/me", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(WorkspaceUser{ID: 1, Name: "Alice", Email: "alice@example.com"})
+		json.NewEncoder(w).Encode(WorkspaceInfo{ID: 42, Name: "Acme Corp", Email: "owner@example.com"})
 	}))
 	defer srv.Close()
 
 	client := NewHTTPClient(srv.URL, "test-token")
-	user, err := client.Workspace().GetCurrentUser(context.Background())
+	info, err := client.Workspace().GetCurrentWorkspace(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if user.Name != "Alice" {
-		t.Errorf("name = %q, want Alice", user.Name)
+	if info.ID != 42 {
+		t.Errorf("id = %d, want 42", info.ID)
+	}
+	if info.Name != "Acme Corp" {
+		t.Errorf("name = %q, want Acme Corp", info.Name)
+	}
+	if info.Email != "owner@example.com" {
+		t.Errorf("email = %q, want owner@example.com", info.Email)
 	}
 }
 

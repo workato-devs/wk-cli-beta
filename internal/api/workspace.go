@@ -9,12 +9,12 @@ type workspaceService struct {
 	client *HTTPClient
 }
 
-func (s *workspaceService) GetCurrentUser(ctx context.Context) (*WorkspaceUser, error) {
-	var user WorkspaceUser
-	if err := s.client.do(ctx, "GET", "/users/me", nil, &user); err != nil {
+func (s *workspaceService) GetCurrentWorkspace(ctx context.Context) (*WorkspaceInfo, error) {
+	var info WorkspaceInfo
+	if err := s.client.do(ctx, "GET", "/users/me", nil, &info); err != nil {
 		return nil, err
 	}
-	return &user, nil
+	return &info, nil
 }
 
 func (s *workspaceService) ListMembers(ctx context.Context, email string) ([]WorkspaceUser, error) {

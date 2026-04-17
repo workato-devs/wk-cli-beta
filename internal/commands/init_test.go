@@ -28,7 +28,9 @@ func setupTestHome(t *testing.T) func() {
 		{
 			Name:        "dev",
 			Workspace:   "test-workspace",
+			WorkspaceID: 12345,
 			Environment: "dev",
+			Email:       "dev@example.com",
 			Region:      auth.RegionUS,
 			StoreType:   auth.StoreKeychain,
 			BaseURL:     "https://www.workato.com",
@@ -263,6 +265,40 @@ func TestInitProfileValidation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error = %q, want profile not found message", err.Error())
+	}
+}
+
+func TestInitWritesProfileSnapshot(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "snap-project", "--profile", "dev", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	cfg, err := config.Load(filepath.Join(dir, "snap-project", config.ProjectFile))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Workspace != "test-workspace" {
+		t.Errorf("Workspace = %q, want %q", cfg.Workspace, "test-workspace")
+	}
+	if cfg.WorkspaceID != 12345 {
+		t.Errorf("WorkspaceID = %d, want 12345", cfg.WorkspaceID)
+	}
+	if cfg.Environment != "dev" {
+		t.Errorf("Environment = %q, want %q", cfg.Environment, "dev")
+	}
+	if cfg.Email != "dev@example.com" {
+		t.Errorf("Email = %q, want %q", cfg.Email, "dev@example.com")
 	}
 }
 

@@ -35,18 +35,18 @@ func newWorkspaceInfoCmd() *cobra.Command {
 				return err
 			}
 
-			user, err := client.Workspace().GetCurrentUser(cmd.Context())
+			info, err := client.Workspace().GetCurrentWorkspace(cmd.Context())
 			if err != nil {
 				return err
 			}
 
 			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, user)
+				return rctx.Formatter.Format(os.Stdout, info)
 			}
 
-			fmt.Fprintf(os.Stdout, "ID:    %d\n", user.ID)
-			fmt.Fprintf(os.Stdout, "Name:  %s\n", user.Name)
-			fmt.Fprintf(os.Stdout, "Email: %s\n", user.Email)
+			fmt.Fprintf(os.Stdout, "ID:    %d\n", info.ID)
+			fmt.Fprintf(os.Stdout, "Name:  %s\n", info.Name)
+			fmt.Fprintf(os.Stdout, "Email: %s\n", info.Email)
 			return nil
 		},
 	}

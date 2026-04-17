@@ -1,0 +1,98 @@
+# CI setup
+
+Running `wk` in CI/CD pipelines (GitHub Actions, GitLab CI, Jenkins, etc.)
+uses the same commands as local development, but flag resolution works
+differently when stdin is not a terminal. This page covers what changes in
+non-interactive mode and how to write invocations that work in both.
+
+## Interactive vs. non-interactive mode
+
+`wk auth login` detects non-interactive mode when **any** of the following
+is true:
+
+- stdin is not a terminal (e.g. redirected, piped, running in CI)
+- `--no-input` is passed explicitly
+- `--json` is passed
+
+The resolution rules for required fields change in that mode:
+
+| Field | Interactive default | Non-interactive behavior |
+|---|---|---|
+| `--token` | Prompted | Required — hard fail if missing |
+| `--environment` | Prompted | Required — hard fail if missing |
+| `--workspace` | Introspected from `GET /users/me` | Introspected identically |
+| `--name` | Auto-computed from `<workspace-slug>-<env>[-<region>]` | Auto-computed identically |
+| `--region` | Defaults to `us` | Defaults to `us` |
+
+The intentional asymmetry: `wk auth login --token X` succeeds in a TTY (it
+prompts for environment) but fails in a pipe (it has nowhere to ask from).
+Copying a working interactive command into a CI script typically means
+adding `--environment <value>`.
+
+### Why the asymmetry?
+
+In CI, determinism beats keystroke economy. Making a pipeline success
+depend on a prompt that never fires, or on remote state that might not be
+populated yet, introduces flakiness. Failing loudly on a missing required
+flag is the safer default. See
+[ADR-006 Sub-decision 10](./ADR-006-profile-identity-model.md#10-non-interactive-mode-behavior).
+
+## Minimum invocation in CI
+
+```sh
+wk auth login \
+  --token "$WORKATO_TOKEN" \
+  --environment prod
+```
+
+The CLI will:
+
+1. Call `GET /users/me` with the token to introspect the workspace — this
+   also serves as token validation. A bad token aborts before anything is
+   persisted.
+2. Compute the profile name as `<workspace-slug>-prod` (or
+   `<workspace-slug>-prod-<region>` when region is non-default).
+3. Write the profile and mark it active.
+
+Subsequent commands (e.g. `wk pull`, `wk push`) resolve credentials by
+profile name as normal.
+
+## Example: GitHub Actions
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+
+  - name: Authenticate
+    env:
+      WORKATO_TOKEN: ${{ secrets.WORKATO_TOKEN }}
+    run: |
+      wk auth login \
+        --token "$WORKATO_TOKEN" \
+        --environment prod \
+        --no-input
+
+  - name: Pull recipes
+    run: wk pull
+```
+
+`--no-input` is optional here since stdin already isn't a TTY, but it's a
+useful explicit marker in scripts that might run locally too.
+
+## Credential storage in CI
+
+The examples above use the default keychain store. Non-keychain backends
+(file-based, encrypted file, secrets manager) are tracked in
+[ADR-006](./ADR-006-profile-identity-model.md) and are not yet available
+in this beta.
+
+When the file-store lands, CI pipelines will have the option to generate a
+`profiles.env` from the pipeline's secrets manager and skip the
+`auth login` step entirely — the profile schema is the same in both cases.
+
+## See also
+
+- [ADR-006 — Profile identity model](./ADR-006-profile-identity-model.md)
+  for the full design rationale, including why `/users/me` introspection
+  is always enabled and `/activity_logs` environment introspection is
+  deferred.

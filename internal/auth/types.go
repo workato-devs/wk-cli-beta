@@ -50,10 +50,15 @@ type Credential struct {
 
 // Profile represents a named authentication profile targeting a specific
 // workspace, environment, and region combination.
+//
+// Workspace, WorkspaceID, and Email are populated from GET /users/me at
+// login time (see ADR-006). Environment is user-provided.
 type Profile struct {
 	Name        string     `json:"name"`
 	Workspace   string     `json:"workspace"`
+	WorkspaceID int        `json:"workspace_id,omitempty"`
 	Environment string     `json:"environment"`
+	Email       string     `json:"email,omitempty"`
 	Region      Region     `json:"region"`
 	StoreType   StoreType  `json:"store_type"`
 	BaseURL     string     `json:"base_url"`

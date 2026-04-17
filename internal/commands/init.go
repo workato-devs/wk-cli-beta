@@ -156,7 +156,8 @@ func newInitCmd() *cobra.Command {
 
 			// Validate that the named profile exists.
 			pm := auth.NewProfileManager()
-			if _, err := pm.GetProfile(profile); err != nil {
+			resolvedProfile, err := pm.GetProfile(profile)
+			if err != nil {
 				return fmt.Errorf("profile %q not found — run 'wk auth login' first", profile)
 			}
 
@@ -179,9 +180,17 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("creating project directory: %w", err)
 			}
 
+			// Snapshot workspace/environment/email from the resolved profile
+			// into wk.toml per ADR-006 Sub-decision 8. These fields are
+			// informational only — runtime routing always uses the profile
+			// store. Safe to persist because .wk/ is gitignored (ADR-005).
 			cfg := &config.Config{
-				Name:    name,
-				Profile: profile,
+				Name:        name,
+				Profile:     profile,
+				Workspace:   resolvedProfile.Workspace,
+				WorkspaceID: resolvedProfile.WorkspaceID,
+				Environment: resolvedProfile.Environment,
+				Email:       resolvedProfile.Email,
 			}
 
 			if flagServerPath != "" {

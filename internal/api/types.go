@@ -145,7 +145,16 @@ type MCPTool struct {
 	Annotations map[string]any `json:"annotations,omitempty"`
 }
 
-// WorkspaceUser represents a Workato workspace member.
+// WorkspaceInfo is the shape returned by GET /users/me. Despite the endpoint
+// path, the response describes the workspace the token authenticates against:
+// id and name are the workspace's. Email is the authenticated account's email.
+type WorkspaceInfo struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// WorkspaceUser represents a Workato workspace member (from GET /members).
 type WorkspaceUser struct {
 	ID    int    `json:"id"`
 	Name  string `json:"name"`

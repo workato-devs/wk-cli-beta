@@ -81,7 +81,7 @@ type APIEndpointService interface {
 
 // WorkspaceService defines operations on workspace management.
 type WorkspaceService interface {
-	GetCurrentUser(ctx context.Context) (*WorkspaceUser, error)
+	GetCurrentWorkspace(ctx context.Context) (*WorkspaceInfo, error)
 	ListMembers(ctx context.Context, email string) ([]WorkspaceUser, error)
 	GetAuditLogs(ctx context.Context, opts *AuditLogOptions) ([]AuditLogEntry, error)
 }
