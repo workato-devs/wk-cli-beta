@@ -12,10 +12,19 @@ import (
 const ProjectFile = "wk.toml"
 
 // Config represents the contents of a wk.toml project file.
+//
+// Workspace, WorkspaceID, Environment, and Email are an informational
+// snapshot of the bound profile at init time (see ADR-006 Sub-decision 8).
+// Runtime routing always resolves from the profile store; these fields
+// exist so `cat wk.toml` reveals what the project targets at a glance.
 type Config struct {
 	Name        string      `toml:"name"`
 	Description string      `toml:"description,omitempty"`
 	Profile     string      `toml:"profile"`
+	Workspace   string      `toml:"workspace,omitempty"`
+	WorkspaceID int         `toml:"workspace_id,omitempty"`
+	Environment string      `toml:"environment,omitempty"`
+	Email       string      `toml:"email,omitempty"`
 	Plugins     []string    `toml:"plugins,omitempty"`
 	MCP         MCPConfig   `toml:"mcp,omitempty"`
 	Sync        []SyncEntry `toml:"sync,omitempty"`

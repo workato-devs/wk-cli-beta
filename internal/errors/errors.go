@@ -11,6 +11,7 @@ var (
 	ErrTokenExpired       = errors.New("auth token has expired")
 	ErrProfileMismatch    = errors.New("active profile does not match project's configured profile")
 	ErrDuplicateTarget    = errors.New("a profile already targets this workspace/environment/region combination")
+	ErrProfilesEnvReadOnly = errors.New("profiles.env is read-only by design; edit the file directly")
 
 	// Project errors
 	ErrNotInProject    = errors.New("not in a wk project directory (no wk.toml found)")

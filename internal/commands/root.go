@@ -46,12 +46,13 @@ type RunContext struct {
 }
 
 var (
-	flagJSON    bool
-	flagVerbose bool
-	flagQuiet   bool
-	flagProfile string
-	flagNoColor bool
-	flagTimeout int
+	flagJSON      bool
+	flagVerbose   bool
+	flagQuiet     bool
+	flagProfile   string
+	flagStoreType string
+	flagNoColor   bool
+	flagTimeout   int
 )
 
 // NewRootCmd builds the root cobra command with all global flags.
@@ -72,6 +73,7 @@ Every command supports --json for machine-readable output.`,
 	pf.BoolVar(&flagVerbose, "verbose", false, "Enable verbose/debug logging")
 	pf.BoolVar(&flagQuiet, "quiet", false, "Suppress non-essential output")
 	pf.StringVar(&flagProfile, "profile", "", "Override active auth profile")
+	pf.StringVar(&flagStoreType, "store-type", "", "Override credential store backend (keychain|file)")
 	pf.BoolVar(&flagNoColor, "no-color", false, "Disable color output")
 	pf.IntVar(&flagTimeout, "timeout", config.DefaultTimeout, "API timeout in seconds")
 

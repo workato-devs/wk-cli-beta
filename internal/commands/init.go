@@ -16,19 +16,12 @@ import (
 )
 
 // resolveVerifyClient builds an API client for the named profile, used by
-// init --verify. This resolves region from the profile rather than relying
-// on the global resolveAPIClient path.
+// init --verify. This honors StoreType routing (ADR-006 Sub-decision 6) via
+// the shared resolveProfileAndCred helper.
 func resolveVerifyClient(cmd *cobra.Command, profileName string) (api.Client, error) {
-	pm := auth.NewProfileManager()
-	profile, err := pm.GetProfile(profileName)
+	profile, cred, err := resolveProfileAndCred(cmd.Context(), profileName)
 	if err != nil {
-		return nil, fmt.Errorf("profile %q not found — run 'wk auth login' first", profileName)
-	}
-
-	store := auth.NewChainStore(&auth.EnvStore{}, &auth.KeyringStore{})
-	cred, err := store.Get(cmd.Context(), profileName)
-	if err != nil {
-		return nil, fmt.Errorf("no credentials for profile %q: %w", profileName, err)
+		return nil, err
 	}
 
 	var opts []api.ClientOption
@@ -99,13 +92,18 @@ func newInitCmd() *cobra.Command {
 		flagServerPath  string
 		flagLocalPath   string
 		flagVerify      bool
+		flagInitNoInput bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a new wk project",
-		Long:  "Create a new wk project directory with a wk.toml config file.",
-		Args:  cobra.NoArgs,
+		Long: `Create a new wk project directory with a wk.toml config file.
+
+Non-interactive mode (detected via --json, --no-input, or a non-TTY stdin)
+requires --name and --profile explicitly. Mirrors the contract used by
+'wk auth login'.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -124,24 +122,30 @@ func newInitCmd() *cobra.Command {
 
 			name := flagName
 			profile := flagInitProfile
+			interactive := isInteractiveStdin() && !flagInitNoInput && !flagJSON
 
-			if flagJSON {
-				// Non-interactive: require --name and --profile.
+			// In non-interactive mode, validate required flags upfront so
+			// no prompt label ever reaches the terminal (mirrors auth login).
+			if !interactive {
+				var missing []string
 				if name == "" {
-					return fmt.Errorf("--name is required in non-interactive (--json) mode")
+					missing = append(missing, "--name")
 				}
 				if profile == "" {
-					return fmt.Errorf("--profile is required in non-interactive (--json) mode")
+					missing = append(missing, "--profile")
+				}
+				if len(missing) > 0 {
+					return fmt.Errorf("%s required in non-interactive mode (detected via --json, --no-input, or non-TTY stdin)",
+						strings.Join(missing, " and "))
 				}
 			} else {
-				// Interactive: prompt for missing values.
 				reader := bufio.NewReader(os.Stdin)
 				if name == "" {
 					fmt.Print("Project name: ")
 					name, _ = reader.ReadString('\n')
 					name = strings.TrimSpace(name)
 					if name == "" {
-						return fmt.Errorf("project name is required")
+						return fmt.Errorf("project name cannot be empty")
 					}
 				}
 				if profile == "" {
@@ -149,25 +153,54 @@ func newInitCmd() *cobra.Command {
 					profile, _ = reader.ReadString('\n')
 					profile = strings.TrimSpace(profile)
 					if profile == "" {
-						return fmt.Errorf("auth profile is required")
+						return fmt.Errorf("auth profile cannot be empty")
 					}
 				}
-			}
-
-			// Validate that the named profile exists.
-			pm := auth.NewProfileManager()
-			if _, err := pm.GetProfile(profile); err != nil {
-				return fmt.Errorf("profile %q not found — run 'wk auth login' first", profile)
-			}
-
-			// Validate that the active profile matches the target profile.
-			if activeName, err := pm.GetActiveProfile(); err == nil && activeName != profile {
-				return fmt.Errorf("active profile %q does not match target profile %q", activeName, profile)
 			}
 
 			// Resolve the target directory: <cwd>/<name>/
 			targetDir := filepath.Join(cwd, name)
 			configPath := filepath.Join(targetDir, config.ProjectFile)
+
+			// Validate profile according to --store-type. File-store profiles
+			// live in the target directory's profiles.env; keychain profiles
+			// live in the user-level profiles.json and must match the active
+			// profile.
+			var resolvedProfile *auth.Profile
+			switch flagStoreType {
+			case "", string(auth.StoreKeychain):
+				pm := auth.NewProfileManager()
+				p, err := pm.GetProfile(profile)
+				if err != nil {
+					return fmt.Errorf("profile %q not found — run 'wk auth login' first", profile)
+				}
+				if activeName, err := pm.GetActiveProfile(); err == nil && activeName != profile {
+					return fmt.Errorf("active profile %q does not match target profile %q", activeName, profile)
+				}
+				resolvedProfile = p
+			case string(auth.StoreFile):
+				envPath := filepath.Join(targetDir, auth.ProfilesEnvFile)
+				if _, err := os.Stat(envPath); err != nil {
+					if !os.IsNotExist(err) {
+						return fmt.Errorf("stat %s: %w", envPath, err)
+					}
+					fmt.Fprintf(os.Stderr,
+						"warning: --store-type file specified but no %s found at %s — create one before running commands\n",
+						auth.ProfilesEnvFile, envPath)
+					// resolvedProfile stays nil; snapshot fields will be
+					// omitted from wk.toml (omitempty).
+				} else {
+					fs := auth.NewFileStore(targetDir)
+					p, ferr := fs.GetProfile(profile)
+					if ferr != nil {
+						return fmt.Errorf("profile %q not found in %s", profile, envPath)
+					}
+					resolvedProfile = p
+				}
+			default:
+				return fmt.Errorf("unknown --store-type %q; valid: %s, %s",
+					flagStoreType, auth.StoreKeychain, auth.StoreFile)
+			}
 
 			// Check if target already contains a wk.toml.
 			if _, err := os.Stat(configPath); err == nil {
@@ -179,9 +212,21 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("creating project directory: %w", err)
 			}
 
+			// Snapshot workspace/environment/email from the resolved profile
+			// into wk.toml per ADR-006 Sub-decision 8. These fields are
+			// informational only — runtime routing always uses the profile
+			// store. Safe to persist because .wk/ is gitignored (ADR-005).
+			// resolvedProfile may be nil in --store-type file deferred mode,
+			// in which case omitempty keeps the fields out of wk.toml.
 			cfg := &config.Config{
 				Name:    name,
 				Profile: profile,
+			}
+			if resolvedProfile != nil {
+				cfg.Workspace = resolvedProfile.Workspace
+				cfg.WorkspaceID = resolvedProfile.WorkspaceID
+				cfg.Environment = resolvedProfile.Environment
+				cfg.Email = resolvedProfile.Email
 			}
 
 			if flagServerPath != "" {
@@ -233,6 +278,7 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&flagServerPath, "server-path", "", "Initial sync server path")
 	cmd.Flags().StringVar(&flagLocalPath, "local-path", "", "Initial sync local path (defaults to \".\")")
 	cmd.Flags().BoolVar(&flagVerify, "verify", false, "Validate server-path exists on Workato before saving")
+	cmd.Flags().BoolVar(&flagInitNoInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
 
 	return cmd
 }

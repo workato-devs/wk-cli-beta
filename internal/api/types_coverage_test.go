@@ -109,6 +109,13 @@ func TestStructFieldCoverage(t *testing.T) {
 			},
 		},
 		{
+			name:       "WorkspaceInfo",
+			structType: reflect.TypeOf(WorkspaceInfo{}),
+			expectedFields: []string{
+				"id", "name", "email",
+			},
+		},
+		{
 			name:       "AuditLogEntry",
 			structType: reflect.TypeOf(AuditLogEntry{}),
 			expectedFields: []string{

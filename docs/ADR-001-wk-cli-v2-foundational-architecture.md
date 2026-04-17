@@ -206,10 +206,16 @@ Local metadata (`.wk-meta.json` sidecar files) tracks each asset's server-side `
 |------|---------|------------|
 | 1 | Secrets manager (Vault, AWS SM, Doppler) | Enterprise / regulated |
 | 2 | OS keychain | Interactive developer use |
-| 3 | Environment variable (`WK_TOKEN`, `WK_REGION`) | CI/CD pipelines |
+| 3 | Project-level file (`profiles.env`) | CI/CD pipelines |
 | 4 | AES-encrypted file | Air-gapped / constrained (explicit opt-in) |
 
 The POC implements Tier 2 and Tier 3. Tier 1 and Tier 4 are Phase 1 deliverables.
+
+> **Revision (April 17, 2026):** Tier 3 was originally a process env-var
+> reader (`WK_TOKEN`/`WK_REGION`). [ADR-006](./ADR-006-profile-identity-model.md)
+> replaces it with a project-level file (`profiles.env`) so the profile
+> schema is uniform across all tiers and CI pipelines aren't coupled to a
+> bespoke env-var contract.
 
 Key libraries: `go-keyring` (keychain), `hashicorp/vault/api` (Vault), `aws-sdk-go-v2` (AWS SM), `crypto/aes` (encrypted file).
 

@@ -28,7 +28,9 @@ func setupTestHome(t *testing.T) func() {
 		{
 			Name:        "dev",
 			Workspace:   "test-workspace",
+			WorkspaceID: 12345,
 			Environment: "dev",
+			Email:       "dev@example.com",
 			Region:      auth.RegionUS,
 			StoreType:   auth.StoreKeychain,
 			BaseURL:     "https://www.workato.com",
@@ -263,6 +265,164 @@ func TestInitProfileValidation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error = %q, want profile not found message", err.Error())
+	}
+}
+
+func TestInitWritesProfileSnapshot(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "snap-project", "--profile", "dev", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	cfg, err := config.Load(filepath.Join(dir, "snap-project", config.ProjectFile))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Workspace != "test-workspace" {
+		t.Errorf("Workspace = %q, want %q", cfg.Workspace, "test-workspace")
+	}
+	if cfg.WorkspaceID != 12345 {
+		t.Errorf("WorkspaceID = %d, want 12345", cfg.WorkspaceID)
+	}
+	if cfg.Environment != "dev" {
+		t.Errorf("Environment = %q, want %q", cfg.Environment, "dev")
+	}
+	if cfg.Email != "dev@example.com" {
+		t.Errorf("Email = %q, want %q", cfg.Email, "dev@example.com")
+	}
+}
+
+func TestInit_NonInteractiveFailsFast(t *testing.T) {
+	cases := []struct {
+		name        string
+		args        []string
+		wantMissing []string
+	}{
+		{"json no flags", []string{"init", "--json"}, []string{"--name", "--profile"}},
+		{"json name only", []string{"init", "--json", "--name", "x"}, []string{"--profile"}},
+		{"no-input no flags", []string{"init", "--no-input"}, []string{"--name", "--profile"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cleanupHome := setupTestHome(t)
+			defer cleanupHome()
+
+			dir := t.TempDir()
+			origDir, _ := os.Getwd()
+			os.Chdir(dir)
+			defer os.Chdir(origDir)
+
+			root := NewRootCmd()
+			root.AddCommand(newInitCmd())
+			root.SetArgs(tc.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatal("expected non-interactive validation error, got nil")
+			}
+			msg := err.Error()
+			for _, flag := range tc.wantMissing {
+				if !strings.Contains(msg, flag) {
+					t.Errorf("err = %q, want substring %q", msg, flag)
+				}
+			}
+			if !strings.Contains(msg, "non-interactive mode") {
+				t.Errorf("err = %q, want mention of non-interactive mode", msg)
+			}
+			if strings.Contains(msg, "Project name:") || strings.Contains(msg, "Auth profile:") {
+				t.Errorf("err contains a prompt label: %q", msg)
+			}
+		})
+	}
+}
+
+func TestInitStoreTypeFile_WarnsWhenMissing(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Capture stderr.
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = origStderr })
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "file-proj", "--profile", "ci", "--store-type", "file", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	w.Close()
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	stderr := string(buf[:n])
+	if !strings.Contains(stderr, "--store-type file specified but no profiles.env") {
+		t.Errorf("expected warn about missing profiles.env, got %q", stderr)
+	}
+
+	// wk.toml should exist with profile reference but no snapshot fields.
+	cfg, err := config.Load(filepath.Join(dir, "file-proj", config.ProjectFile))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Profile != "ci" {
+		t.Errorf("Profile = %q, want ci", cfg.Profile)
+	}
+	if cfg.Workspace != "" {
+		t.Errorf("Workspace = %q, want empty (deferred)", cfg.Workspace)
+	}
+}
+
+func TestInitStoreTypeFile_HydratesFromProfilesEnv(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Pre-create the target directory and a profiles.env in it.
+	projectDir := filepath.Join(dir, "ci-proj")
+	if err := os.Mkdir(projectDir, 0755); err != nil {
+		t.Fatalf("creating dir: %v", err)
+	}
+	profilesEnv := "NAME=ci\nWORKSPACE=acme\nENVIRONMENT=prod\nREGION=us\nTOKEN=secret\n"
+	if err := os.WriteFile(filepath.Join(projectDir, auth.ProfilesEnvFile), []byte(profilesEnv), 0600); err != nil {
+		t.Fatalf("writing profiles.env: %v", err)
+	}
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "ci-proj", "--profile", "ci", "--store-type", "file", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	cfg, err := config.Load(filepath.Join(projectDir, config.ProjectFile))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Workspace != "acme" {
+		t.Errorf("Workspace = %q, want acme", cfg.Workspace)
+	}
+	if cfg.Environment != "prod" {
+		t.Errorf("Environment = %q, want prod", cfg.Environment)
 	}
 }
 

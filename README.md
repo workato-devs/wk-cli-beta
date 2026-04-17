@@ -54,6 +54,9 @@ Supported regions: `us`, `eu`, `jp`, `au`, `sg`, `trial` (developer sandbox).
 Credentials can be stored in the system keychain, an environment variable, a
 file, or HashiCorp Vault (see `--store` flag on `wk auth login`).
 
+Running `wk` in CI/CD? See [docs/ci-setup.md](./docs/ci-setup.md) for
+non-interactive flag requirements and example pipelines.
+
 ### 2. Initialize a project
 
 ```sh

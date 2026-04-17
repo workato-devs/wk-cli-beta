@@ -543,13 +543,18 @@ wk diff
 
 Expected: shows differences between local and remote with hash comparison.
 
-### 2.10 Env Var Auth (CI/CD mode)
+### 2.10 File-Store Auth (CI/CD mode)
+
+See [docs/ci-setup.md](./ci-setup.md) for the full non-interactive and
+file-store workflows. Minimum smoke:
 
 ```sh
-WK_TOKEN="$TEST_TOKEN" WK_REGION="$TEST_REGION" wk recipes list --json
+# Inside a project directory containing a profiles.env with a "ci" record:
+wk recipes list --profile ci --store-type file --json
 ```
 
-Expected: works without any `wk auth login`. Returns valid JSON recipe list.
+Expected: the CLI reads the token from `profiles.env`, returns a valid JSON
+recipe list, and never touches the OS keychain.
 
 ### 2.11 Error Handling
 
@@ -614,5 +619,5 @@ Expected: error about invalid region.
 | 2.7 | `wk recipes export/import` | Live | Round-trip produces valid recipe |
 | 2.8 | Connections | Live | List, get, test all return expected output |
 | 2.9 | Sync workflow | Live | Pull, status, modify, status, push --dry-run, diff |
-| 2.10 | Env var auth | Live | `WK_TOKEN` works without login |
+| 2.10 | File-store auth | Live | `profiles.env` + `--store-type file` works without login |
 | 2.11 | Error handling | Live | Bad token, bad ID, bad profile all produce clean errors |

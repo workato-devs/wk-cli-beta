@@ -167,29 +167,3 @@ func TestSaveProfileUniqueness(t *testing.T) {
 	}
 }
 
-func TestEnvStore(t *testing.T) {
-	store := &EnvStore{}
-
-	// Without env vars, Get should fail
-	_, err := store.Get(nil, "any")
-	if err == nil {
-		t.Error("expected error without WK_TOKEN set")
-	}
-
-	// Set/Delete should be no-ops
-	if err := store.Set(nil, "x", &Credential{}); err != nil {
-		t.Errorf("Set should be no-op: %v", err)
-	}
-	if err := store.Delete(nil, "x"); err != nil {
-		t.Errorf("Delete should be no-op: %v", err)
-	}
-
-	// List without env
-	names, err := store.List(nil)
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if len(names) != 0 {
-		t.Errorf("expected empty list, got %v", names)
-	}
-}

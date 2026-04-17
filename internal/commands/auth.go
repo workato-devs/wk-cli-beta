@@ -35,73 +35,55 @@ func newAuthLoginCmd() *cobra.Command {
 		region      string
 		token       string
 		force       bool
+		noInput     bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Create or update an auth profile",
+		Long: `Create or update an auth profile.
+
+The CLI introspects the workspace from GET /users/me, so --workspace is an
+optional override. The profile name is auto-computed from the workspace and
+environment when --name is omitted.
+
+Non-interactive mode (detected via --json, --no-input, or a non-TTY stdin)
+requires --token and --environment explicitly. See ADR-006.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			interactive := isInteractiveStdin() && !noInput && !flagJSON
 			reader := bufio.NewReader(os.Stdin)
 
-			if flagJSON {
-				// Non-interactive: all required flags must be provided.
-				if name == "" {
-					return fmt.Errorf("--name is required in non-interactive (--json) mode")
-				}
-				if workspace == "" {
-					return fmt.Errorf("--workspace is required in non-interactive (--json) mode")
+			// In non-interactive mode, validate every required flag upfront
+			// before any API call or prompt. This prevents prompt labels
+			// from ever reaching the terminal in batch contexts.
+			if !interactive {
+				var missing []string
+				if token == "" {
+					missing = append(missing, "--token")
 				}
 				if environment == "" {
-					return fmt.Errorf("--environment is required in non-interactive (--json) mode")
+					missing = append(missing, "--environment")
 				}
-				if token == "" {
-					return fmt.Errorf("--token is required in non-interactive (--json) mode")
-				}
-			} else {
-				// Interactive: prompt for missing values in struct field order.
-				if name == "" {
-					fmt.Print("Profile name: ")
-					name, _ = reader.ReadString('\n')
-					name = strings.TrimSpace(name)
-				}
-				if workspace == "" {
-					fmt.Print("Workspace (Workato account name): ")
-					workspace, _ = reader.ReadString('\n')
-					workspace = strings.TrimSpace(workspace)
-				}
-				if environment == "" {
-					fmt.Print("Environment (e.g. dev, staging, prod): ")
-					environment, _ = reader.ReadString('\n')
-					environment = strings.TrimSpace(environment)
-				}
-				if region == "" {
-					fmt.Printf("Region [%s]: ", config.DefaultRegion)
-					region, _ = reader.ReadString('\n')
-					region = strings.TrimSpace(region)
-					if region == "" {
-						region = config.DefaultRegion
-					}
-				}
-				if token == "" {
-					fmt.Print("API token: ")
-					token, _ = reader.ReadString('\n')
-					token = strings.TrimSpace(token)
+				if len(missing) > 0 {
+					return fmt.Errorf("%s required in non-interactive mode (detected via --json, --no-input, or non-TTY stdin)",
+						strings.Join(missing, " and "))
 				}
 			}
 
-			if name == "" {
-				return fmt.Errorf("profile name is required")
-			}
-			if workspace == "" {
-				return fmt.Errorf("workspace is required")
-			}
-			if environment == "" {
-				return fmt.Errorf("environment is required")
+			// Step 1: token. Prompt only in interactive mode.
+			if token == "" {
+				fmt.Print("API token: ")
+				line, _ := reader.ReadString('\n')
+				token = strings.TrimSpace(line)
 			}
 			if token == "" {
 				return fmt.Errorf("API token is required")
 			}
 
+			// Step 1b: region. Defaults silently to "us".
+			if region == "" {
+				region = config.DefaultRegion
+			}
 			r := auth.Region(region)
 			if !r.IsValid() {
 				regions := auth.ValidRegions()
@@ -111,12 +93,55 @@ func newAuthLoginCmd() *cobra.Command {
 				}
 				return fmt.Errorf("invalid region %q; valid regions: %s", region, strings.Join(names, ", "))
 			}
+			baseURL := config.BaseURL(region)
+
+			// Step 2: GET /users/me. Populates workspace, workspace_id, email.
+			// Failure here aborts login — a token that can't authenticate is
+			// not worth persisting.
+			tempClient := api.NewHTTPClient(baseURL+config.APIPathPrefix, token)
+			info, err := tempClient.Workspace().GetCurrentWorkspace(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("validating token via /users/me: %w", err)
+			}
+
+			// Step 3: --workspace mismatch check.
+			if workspace != "" && workspace != info.Name {
+				return fmt.Errorf("--workspace %q does not match the token's workspace %q; the API's value is authoritative",
+					workspace, info.Name)
+			}
+			workspace = info.Name
+
+			// Step 4: environment. Only prompted in interactive mode;
+			// non-interactive mode was already validated upfront.
+			if environment == "" {
+				fmt.Print("Environment (e.g. dev, staging, prod): ")
+				line, _ := reader.ReadString('\n')
+				environment = strings.TrimSpace(line)
+			}
+			if environment == "" {
+				return fmt.Errorf("environment cannot be empty")
+			}
+
+			// Step 5: name. Auto-compute <workspace-slug>-<env>[-<region>]
+			// when --name is omitted; in interactive mode, show the computed
+			// default in the prompt.
+			computed := computeProfileName(workspace, environment, region)
+			if name == "" {
+				if interactive {
+					fmt.Printf("Profile name [%s]: ", computed)
+					line, _ := reader.ReadString('\n')
+					name = strings.TrimSpace(line)
+				}
+				if name == "" {
+					name = computed
+				}
+			}
 
 			pm := auth.NewProfileManager()
 
 			// Overwrite detection: check if profile name already exists.
 			if existing, _ := pm.GetProfile(name); existing != nil && !force {
-				if flagJSON {
+				if !interactive {
 					return fmt.Errorf("profile %q already exists — use --force to overwrite", name)
 				}
 				fmt.Fprintf(os.Stderr, "Profile %q already exists (workspace: %s, environment: %s, region: %s)\n",
@@ -130,13 +155,14 @@ func newAuthLoginCmd() *cobra.Command {
 				}
 			}
 
-			baseURL := config.BaseURL(region)
 			now := time.Now()
 
 			profile := &auth.Profile{
 				Name:        name,
-				Workspace:   workspace,
+				Workspace:   info.Name,
+				WorkspaceID: info.ID,
 				Environment: environment,
+				Email:       info.Email,
 				Region:      r,
 				StoreType:   auth.StoreKeychain,
 				BaseURL:     baseURL,
@@ -169,13 +195,62 @@ func newAuthLoginCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "Profile name")
-	cmd.Flags().StringVar(&workspace, "workspace", "", "Workato account name")
-	cmd.Flags().StringVar(&environment, "environment", "", "Target environment (e.g. dev, staging, prod)")
+	cmd.Flags().StringVar(&name, "name", "", "Profile name (default: <workspace-slug>-<environment>[-<region>])")
+	cmd.Flags().StringVar(&workspace, "workspace", "", "Override workspace; must match the token's workspace (default: introspected from /users/me)")
+	cmd.Flags().StringVar(&environment, "environment", "", "Target environment (e.g. dev, staging, prod); required in non-interactive mode")
 	cmd.Flags().StringVar(&region, "region", config.DefaultRegion, "Workato region (us, eu, jp, au, sg)")
-	cmd.Flags().StringVar(&token, "token", "", "Workato API token")
+	cmd.Flags().StringVar(&token, "token", "", "Workato API token; required in non-interactive mode")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip overwrite confirmation if profile already exists")
+	cmd.Flags().BoolVar(&noInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
 	return cmd
+}
+
+// isInteractiveStdin reports whether the CLI can meaningfully prompt the
+// user — it requires BOTH stdin and stdout to be attached to a terminal.
+// Checking stdout too catches cases where output is captured to a file or
+// piped further, in which case prompt labels become noise (the user can't
+// read them inline with their own input).
+func isInteractiveStdin() bool {
+	return isTerminal(os.Stdin) && isTerminal(os.Stdout)
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// computeProfileName returns <workspace-slug>-<environment>[-<region>] per
+// ADR-006. The region suffix is appended only when region is non-default
+// (anything other than "us"), keeping names quiet in the common case and
+// disambiguating cross-region profiles.
+func computeProfileName(workspace, environment, region string) string {
+	name := slugify(workspace) + "-" + environment
+	if region != "" && region != config.DefaultRegion {
+		name += "-" + region
+	}
+	return name
+}
+
+// slugify lowercases s, replaces non-alphanumerics with "-", collapses
+// repeated separators, and trims leading/trailing separators.
+func slugify(s string) string {
+	var b strings.Builder
+	lastSep := true // suppress a leading separator
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastSep = false
+			continue
+		}
+		if !lastSep {
+			b.WriteRune('-')
+			lastSep = true
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
 }
 
 func newAuthStatusCmd() *cobra.Command {
@@ -194,13 +269,17 @@ func newAuthStatusCmd() *cobra.Command {
 				return fmt.Errorf("no active profile: %w", err)
 			}
 
-			profile, err := pm.GetProfile(activeName)
-			if err != nil {
-				return fmt.Errorf("profile %q: %w", activeName, err)
+			profile, _, credErr := resolveProfileAndCred(cmd.Context(), activeName)
+			if profile == nil {
+				// Fall back to metadata-only read so status can still report
+				// which profile is configured even if the backend can't be
+				// reached.
+				p, perr := pm.GetProfile(activeName)
+				if perr != nil {
+					return fmt.Errorf("profile %q: %w", activeName, perr)
+				}
+				profile = p
 			}
-
-			store := auth.NewChainStore(&auth.EnvStore{}, &auth.KeyringStore{})
-			_, credErr := store.Get(cmd.Context(), activeName)
 
 			type statusInfo struct {
 				Profile     string `json:"profile"`
@@ -276,6 +355,21 @@ func newAuthSwitchCmd() *cobra.Command {
 			pm := auth.NewProfileManager()
 
 			if _, err := pm.GetProfile(name); err != nil {
+				// Keychain miss: check if the name exists in profiles.env to
+				// give a more useful error. File-store profiles are project-
+				// scoped and cannot be set as the global active profile.
+				if cwd, werr := os.Getwd(); werr == nil {
+					if root, rerr := config.FindProjectRoot(cwd); rerr == nil {
+						fs := auth.NewFileStore(root)
+						if fs.Exists() {
+							if _, fperr := fs.GetProfile(name); fperr == nil {
+								return fmt.Errorf(
+									"profile %q is a file-store profile; file-store profiles are resolved per-invocation via --profile %s --store-type file and cannot be set as the global active profile",
+									name, name)
+							}
+						}
+					}
+				}
 				return fmt.Errorf("profile %q not found", name)
 			}
 
@@ -306,28 +400,58 @@ func newAuthListCmd() *cobra.Command {
 			}
 
 			activeName, _ := pm.GetActiveProfile()
+			keychainNames := make(map[string]bool, len(profiles))
+			for _, p := range profiles {
+				keychainNames[p.Name] = true
+			}
 
 			headers := []string{"NAME", "WORKSPACE", "ENVIRONMENT", "REGION", "STORE", "ACTIVE"}
 			var rows [][]string
 			for _, p := range profiles {
-				active := ""
-				if p.Name == activeName {
-					active = "*"
+				rows = append(rows, profileRow(p, activeName == p.Name, false))
+			}
+
+			// Merge file-store profiles when inside a project with profiles.env.
+			if cwd, werr := os.Getwd(); werr == nil {
+				if root, rerr := config.FindProjectRoot(cwd); rerr == nil {
+					fs := auth.NewFileStore(root)
+					if fs.Exists() {
+						fileProfiles, ferr := fs.ListProfiles()
+						if ferr != nil {
+							fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", fs.Path, ferr)
+						}
+						for _, p := range fileProfiles {
+							rows = append(rows, profileRow(p, false, keychainNames[p.Name]))
+						}
+					}
 				}
-				ws := p.Workspace
-				if ws == "" {
-					ws = "(unset)"
-				}
-				env := p.Environment
-				if env == "" {
-					env = "(unset)"
-				}
-				rows = append(rows, []string{p.Name, ws, env, string(p.Region), string(p.StoreType), active})
 			}
 
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
 		},
 	}
+}
+
+// profileRow formats one auth-list row. When shadowed is true, the name is
+// annotated to show that keychain routing would shadow this file-store entry.
+func profileRow(p *auth.Profile, isActive, shadowed bool) []string {
+	active := ""
+	if isActive {
+		active = "*"
+	}
+	name := p.Name
+	if shadowed {
+		name += " (shadowed)"
+	}
+	ws := p.Workspace
+	if ws == "" {
+		ws = "(unset)"
+	}
+	env := p.Environment
+	if env == "" {
+		env = "(unset)"
+	}
+	return []string{name, ws, env, string(p.Region), string(p.StoreType), active}
 }
 
 func newAuthDeleteCmd() *cobra.Command {
