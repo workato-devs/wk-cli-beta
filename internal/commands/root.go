@@ -158,6 +158,7 @@ func registerAllCommands(root *cobra.Command) {
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newWorkspaceCmd())
 	root.AddCommand(newConnectorsCmd())
+	root.AddCommand(newProjectCmd())
 	registerPluginCommands(root)
 }
 

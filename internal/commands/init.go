@@ -91,6 +91,7 @@ func newInitCmd() *cobra.Command {
 		flagInitProfile string
 		flagServerPath  string
 		flagLocalPath   string
+		flagSyncMulti   []string
 		flagVerify      bool
 		flagInitNoInput bool
 		flagOverwrite   bool
@@ -289,28 +290,44 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 				}
 			}
 
+			// Collect requested new entries from both the legacy
+			// --server-path/--local-path shorthand and the repeatable --sync
+			// flag. Both forms can be used together; all entries go through
+			// the same dedup + optional --verify pass.
+			var requested []config.SyncEntry
 			if flagServerPath != "" {
 				localPath := flagLocalPath
 				if localPath == "" {
 					localPath = "."
 				}
+				requested = append(requested, config.SyncEntry{
+					ServerPath: flagServerPath,
+					LocalPath:  localPath,
+				})
+			} else if flagLocalPath != "" {
+				return fmt.Errorf("--local-path requires --server-path (for multi-entry use --sync SERVER[:LOCAL])")
+			}
+			for _, raw := range flagSyncMulti {
+				entry, perr := parseSyncFlag(raw)
+				if perr != nil {
+					return perr
+				}
+				requested = append(requested, entry)
+			}
 
-				if flagVerify {
-					client, err := resolveVerifyClient(cmd, profile)
-					if err != nil {
-						return fmt.Errorf("--verify requires auth: %w", err)
-					}
-					if err := verifyServerPath(cmd, client, flagServerPath); err != nil {
+			if flagVerify && len(requested) > 0 {
+				client, err := resolveVerifyClient(cmd, profile)
+				if err != nil {
+					return fmt.Errorf("--verify requires auth: %w", err)
+				}
+				for _, e := range requested {
+					if err := verifyServerPath(cmd, client, e.ServerPath); err != nil {
 						return err
 					}
 				}
+			}
 
-				// Append unless an identical entry already exists (e.g., when
-				// re-running init with the same --server-path for idempotency).
-				newEntry := config.SyncEntry{
-					ServerPath: flagServerPath,
-					LocalPath:  localPath,
-				}
+			for _, newEntry := range requested {
 				duplicate := false
 				for _, existing := range cfg.Sync {
 					if existing.ServerPath == newEntry.ServerPath && existing.LocalPath == newEntry.LocalPath {
@@ -350,9 +367,10 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 
 	cmd.Flags().StringVar(&flagName, "name", "", "Project name (also the container directory name)")
 	cmd.Flags().StringVar(&flagInitProfile, "profile", "", "Auth profile name")
-	cmd.Flags().StringVar(&flagServerPath, "server-path", "", "Initial sync server path")
-	cmd.Flags().StringVar(&flagLocalPath, "local-path", "", "Initial sync local path (defaults to \".\")")
-	cmd.Flags().BoolVar(&flagVerify, "verify", false, "Validate server-path exists on Workato before saving")
+	cmd.Flags().StringVar(&flagServerPath, "server-path", "", "Initial sync server path (single-entry shorthand; pairs with --local-path)")
+	cmd.Flags().StringVar(&flagLocalPath, "local-path", "", "Initial sync local path (defaults to \".\"; only valid with --server-path)")
+	cmd.Flags().StringArrayVar(&flagSyncMulti, "sync", nil, "Add a [[sync]] entry SERVER_PATH[:LOCAL_PATH] (repeatable; for multi-entry projects)")
+	cmd.Flags().BoolVar(&flagVerify, "verify", false, "Validate every configured server-path exists on Workato before saving")
 	cmd.Flags().BoolVar(&flagInitNoInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
 	cmd.Flags().BoolVar(&flagOverwrite, "overwrite", false, "Overwrite an existing project config without prompting (non-interactive mode)")
 
