@@ -11,11 +11,14 @@ import (
 func writeProfilesEnv(t *testing.T, content string) *FileStore {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, ProfilesEnvFile)
-	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+	fs := NewFileStore(dir)
+	if err := os.MkdirAll(filepath.Dir(fs.Path), 0755); err != nil {
+		t.Fatalf("creating .wk/: %v", err)
+	}
+	if err := os.WriteFile(fs.Path, []byte(content), 0600); err != nil {
 		t.Fatalf("writing profiles.env: %v", err)
 	}
-	return NewFileStore(dir)
+	return fs
 }
 
 func TestFileStore_Exists(t *testing.T) {

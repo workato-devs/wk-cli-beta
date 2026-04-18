@@ -189,9 +189,9 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 			}
 
 			// Validate profile according to --store-type. File-store profiles
-			// live in the target directory's profiles.env; keychain profiles
-			// live in the user-level profiles.json and must match the active
-			// profile.
+			// live at <target>/.wk/profiles.env (alongside wk.toml per ADR-006
+			// Sub-decision 3); keychain profiles live in the user-level
+			// profiles.json and must match the active profile.
 			var resolvedProfile *auth.Profile
 			switch flagStoreType {
 			case "", string(auth.StoreKeychain):
@@ -205,21 +205,17 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 				}
 				resolvedProfile = p
 			case string(auth.StoreFile):
-				envPath := filepath.Join(targetDir, auth.ProfilesEnvFile)
-				if _, err := os.Stat(envPath); err != nil {
-					if !os.IsNotExist(err) {
-						return fmt.Errorf("stat %s: %w", envPath, err)
-					}
+				fs := auth.NewFileStore(targetDir)
+				if !fs.Exists() {
 					fmt.Fprintf(os.Stderr,
 						"warning: --store-type file specified but no %s found at %s — create one before running commands\n",
-						auth.ProfilesEnvFile, envPath)
+						auth.ProfilesEnvFile, fs.Path)
 					// resolvedProfile stays nil; snapshot fields will be
 					// omitted from wk.toml (omitempty).
 				} else {
-					fs := auth.NewFileStore(targetDir)
 					p, ferr := fs.GetProfile(profile)
 					if ferr != nil {
-						return fmt.Errorf("profile %q not found in %s", profile, envPath)
+						return fmt.Errorf("profile %q not found in %s", profile, fs.Path)
 					}
 					resolvedProfile = p
 				}

@@ -90,7 +90,8 @@ see the next section.
 CI pipelines typically skip `wk auth login` entirely and generate a
 `profiles.env` from the pipeline's secrets manager instead. The file is
 CLI-read-only (the CLI never writes it), uses a `NAME=` record delimiter,
-and lives alongside `wk.toml` at the project root.
+and lives at `<project-root>/.wk/profiles.env` — alongside `wk.toml`
+inside the tool-managed directory.
 
 ### GitHub Actions example with `profiles.env`
 
@@ -98,11 +99,12 @@ and lives alongside `wk.toml` at the project root.
 steps:
   - uses: actions/checkout@v4
 
-  - name: Write profiles.env
+  - name: Write .wk/profiles.env
     env:
       WORKATO_TOKEN: ${{ secrets.WORKATO_TOKEN }}
     run: |
-      cat <<EOF > profiles.env
+      mkdir -p .wk
+      cat <<EOF > .wk/profiles.env
       NAME=ci
       WORKSPACE=acme-corp
       ENVIRONMENT=prod
@@ -114,13 +116,16 @@ steps:
     run: wk pull --profile ci --store-type file
 ```
 
-`--store-type file` routes explicitly to `profiles.env` and skips keychain
-lookup. `--profile ci` names the record. The committed `wk.toml` typically
-carries `profile = "ci"` so the two line up. See
-[`profiles.env.example`](../profiles.env.example) for the full format.
+`--store-type file` routes explicitly to `.wk/profiles.env` and skips
+keychain lookup. `--profile ci` names the record. The committed
+`.wk/wk.toml` typically carries `profile = "ci"` so the two line up. See
+[`profiles.env.example`](./profiles.env.example) for the full format.
 
-**Important:** `profiles.env` holds secrets. Never commit it. The repo
-root `.gitignore` already excludes `*.env`.
+**Important:** `profiles.env` holds secrets. Never commit it. Living inside
+`.wk/` means it's covered by `.wk/.gitignore` automatically (ADR-005
+Decision 8). The repo-level `*.env` rule that the sample `.gitignore`
+templates often include is not relied on — the self-ignore in `.wk/` is
+the authoritative guard.
 
 ## See also
 

@@ -82,8 +82,8 @@ func writeKeychainProfile(t *testing.T, p *auth.Profile) {
 	}
 }
 
-// writeProjectFileStore creates .wk/wk.toml + profiles.env at cwd for a
-// named profile.
+// writeProjectFileStore creates .wk/wk.toml + .wk/profiles.env at cwd for
+// a named profile.
 func writeProjectFileStore(t *testing.T, cwd, name, token string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(cwd, config.ProjectDir), 0755); err != nil {
@@ -94,7 +94,7 @@ func writeProjectFileStore(t *testing.T, cwd, name, token string) {
 		t.Fatalf("writing wk.toml: %v", err)
 	}
 	body := "NAME=" + name + "\nREGION=us\nWORKSPACE=acme\nENVIRONMENT=dev\nTOKEN=" + token + "\n"
-	if err := os.WriteFile(filepath.Join(cwd, auth.ProfilesEnvFile),
+	if err := os.WriteFile(auth.NewFileStore(cwd).Path,
 		[]byte(body), 0600); err != nil {
 		t.Fatalf("writing profiles.env: %v", err)
 	}

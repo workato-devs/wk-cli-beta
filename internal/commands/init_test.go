@@ -398,13 +398,16 @@ func TestInitStoreTypeFile_HydratesFromProfilesEnv(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	// Pre-create the target directory and a profiles.env in it.
+	// Pre-create the target .wk/ directory and drop a profiles.env in it.
+	// profiles.env lives at <projectRoot>/.wk/profiles.env per ADR-006
+	// Sub-decision 3 (alongside wk.toml) so that .wk/.gitignore automatically
+	// prevents accidental commits of the secrets file.
 	projectDir := filepath.Join(dir, "ci-proj")
-	if err := os.Mkdir(projectDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectDir, config.ProjectDir), 0755); err != nil {
 		t.Fatalf("creating dir: %v", err)
 	}
 	profilesEnv := "NAME=ci\nWORKSPACE=acme\nENVIRONMENT=prod\nREGION=us\nTOKEN=secret\n"
-	if err := os.WriteFile(filepath.Join(projectDir, auth.ProfilesEnvFile), []byte(profilesEnv), 0600); err != nil {
+	if err := os.WriteFile(auth.NewFileStore(projectDir).Path, []byte(profilesEnv), 0600); err != nil {
 		t.Fatalf("writing profiles.env: %v", err)
 	}
 
