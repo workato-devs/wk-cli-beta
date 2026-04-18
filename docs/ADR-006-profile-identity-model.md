@@ -174,7 +174,9 @@ The file-based credential store replaces the previous process-environment-variab
 ```
 NAME=dev
 WORKSPACE=acme-corp
+WORKSPACE_ID=2100000735
 ENVIRONMENT=dev
+EMAIL=dev@acme.corp
 REGION=us
 STORE_TYPE=file
 BASE_URL=https://www.workato.com
@@ -182,7 +184,9 @@ TOKEN=wk-xxxxx
 
 NAME=prod
 WORKSPACE=acme-corp
+WORKSPACE_ID=2100000735
 ENVIRONMENT=prod
+EMAIL=prod@acme.corp
 REGION=us
 STORE_TYPE=file
 BASE_URL=https://www.workato.com
@@ -190,6 +194,7 @@ TOKEN=wk-yyyyy
 ```
 
 - Each `NAME=` line starts a new profile record. Fields following it until the next `NAME=` line (or EOF) belong to that profile.
+- Required per record: `NAME`, `REGION`, `TOKEN`. Optional: `WORKSPACE`, `WORKSPACE_ID` (integer), `ENVIRONMENT`, `EMAIL`, `BASE_URL`, `STORE_TYPE`. The optional fields populate the `wk.toml` snapshot so `cat wk.toml` reveals what the project targets; when absent, the corresponding snapshot fields are simply empty.
 - Keys are unprefixed — no `WK_` prefix. The file is CLI-owned; key names correspond directly to profile struct fields.
 - The CLI reads but **does not write** to this file. Developers and CI/CD pipelines create and manage it directly.
 - **Path:** `<project-root>/.wk/profiles.env` — alongside `wk.toml` inside the tool-managed directory (per ADR-005 Decision 1). Co-locating with `wk.toml` also means `profiles.env` is automatically covered by `.wk/.gitignore` (ADR-005 Decision 8), so the secrets file cannot be committed by accident.

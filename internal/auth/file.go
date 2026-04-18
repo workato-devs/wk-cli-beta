@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,7 +126,9 @@ func (f *FileStore) ListProfiles() ([]*Profile, error) {
 type fileRecord struct {
 	name        string
 	workspace   string
+	workspaceID int
 	environment string
+	email       string
 	region      string
 	baseURL     string
 	token       string
@@ -143,7 +146,9 @@ func (r fileRecord) toProfile() *Profile {
 	return &Profile{
 		Name:        r.name,
 		Workspace:   r.workspace,
+		WorkspaceID: r.workspaceID,
 		Environment: r.environment,
+		Email:       r.email,
 		Region:      region,
 		StoreType:   StoreFile,
 		BaseURL:     baseURL,
@@ -226,8 +231,19 @@ func parseProfilesEnv(r io.Reader) ([]fileRecord, error) {
 		switch key {
 		case "WORKSPACE":
 			current.workspace = val
+		case "WORKSPACE_ID":
+			if val == "" {
+				break
+			}
+			id, cerr := strconv.Atoi(val)
+			if cerr != nil {
+				return nil, fmt.Errorf("profiles.env line %d: WORKSPACE_ID=%q is not an integer", lineNo, val)
+			}
+			current.workspaceID = id
 		case "ENVIRONMENT":
 			current.environment = val
+		case "EMAIL":
+			current.email = val
 		case "REGION":
 			current.region = val
 		case "BASE_URL":

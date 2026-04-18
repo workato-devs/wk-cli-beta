@@ -101,6 +101,55 @@ TOKEN=wk-prod
 	}
 }
 
+func TestFileStore_WorkspaceIDAndEmail(t *testing.T) {
+	fs := writeProfilesEnv(t, `NAME=academy
+WORKSPACE=NewWS
+WORKSPACE_ID=2100000735
+ENVIRONMENT=prod
+EMAIL=user@example.com
+REGION=us
+TOKEN=wk-x
+`)
+	p, err := fs.GetProfile("academy")
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if p.WorkspaceID != 2100000735 {
+		t.Errorf("WorkspaceID = %d, want 2100000735", p.WorkspaceID)
+	}
+	if p.Email != "user@example.com" {
+		t.Errorf("Email = %q, want user@example.com", p.Email)
+	}
+}
+
+func TestFileStore_WorkspaceIDInvalid(t *testing.T) {
+	dir := t.TempDir()
+	fs := NewFileStore(dir)
+	if err := os.MkdirAll(filepath.Dir(fs.Path), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	content := "NAME=bad\nWORKSPACE_ID=not-a-number\nREGION=us\nTOKEN=t\n"
+	if err := os.WriteFile(fs.Path, []byte(content), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := fs.GetProfile("bad"); err == nil || !strings.Contains(err.Error(), "WORKSPACE_ID") {
+		t.Errorf("err = %v, want WORKSPACE_ID parse error", err)
+	}
+}
+
+func TestFileStore_WorkspaceIDAndEmailOptional(t *testing.T) {
+	// Records without WORKSPACE_ID/EMAIL should parse cleanly; the fields
+	// default to zero-values.
+	fs := writeProfilesEnv(t, "NAME=minimal\nREGION=us\nTOKEN=t\n")
+	p, err := fs.GetProfile("minimal")
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if p.WorkspaceID != 0 || p.Email != "" {
+		t.Errorf("optional fields should default to zero: %+v", p)
+	}
+}
+
 func TestFileStore_BaseURLDefaultsFromRegion(t *testing.T) {
 	cases := []struct {
 		region string

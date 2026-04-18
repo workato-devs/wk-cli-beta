@@ -26,14 +26,30 @@ func resolveAPIClient(cmd *cobra.Command) (api.Client, *auth.Profile, error) {
 		return nil, nil, err
 	}
 
-	// P0: Profile isolation check — prevent accidental cross-environment operations.
-	// Only enforced when --profile was NOT explicitly set (explicit = intent override).
-	if !explicitProfile {
-		if cwd, err := os.Getwd(); err == nil {
-			if projectRoot, err := config.FindProjectRoot(cwd); err == nil {
-				if cfg, err := config.Load(config.ProjectConfigPath(projectRoot)); err == nil {
+	// P0: profile isolation + snapshot self-heal.
+	//
+	// The match check is only enforced when --profile was NOT explicitly set
+	// (explicit = intent override). The snapshot refresh is independent: it
+	// runs whenever the resolved profile matches cfg.Profile, regardless of
+	// how it was specified. For file-store-bound projects `--profile X
+	// --store-type file` is the only way to invoke the project, not an
+	// override, so gating self-heal on !explicitProfile would leave their
+	// snapshots permanently stale (ADR-006 Sub-decision 3 forbids setting
+	// file-store profiles as the global active, so wk auth switch trigger-2
+	// is also unreachable for them).
+	if cwd, err := os.Getwd(); err == nil {
+		if projectRoot, err := config.FindProjectRoot(cwd); err == nil {
+			if cfg, err := config.Load(config.ProjectConfigPath(projectRoot)); err == nil {
+				if !explicitProfile {
 					if err := checkProfileMatch(cfg, profile.Name); err != nil {
 						return nil, nil, err
+					}
+				}
+				if profile.Name == cfg.Profile {
+					if refreshed, rerr := refreshSnapshotIfStale(projectRoot, cfg, profile); rerr != nil {
+						fmt.Fprintf(os.Stderr, "warning: %v\n", rerr)
+					} else if refreshed && flagVerbose {
+						fmt.Fprintf(os.Stderr, "[debug] refreshed wk.toml snapshot for profile %q\n", profile.Name)
 					}
 				}
 			}
@@ -189,4 +205,33 @@ func checkProfileMatch(cfg *config.Config, profileName string) error {
 		)
 	}
 	return nil
+}
+
+// refreshSnapshotIfStale rewrites wk.toml's snapshot fields (workspace,
+// workspace_id, environment, email) when they diverge from the resolved
+// profile. Addresses issue #33 / ADR-006 Sub-decision 8 — the snapshot
+// exists so `cat wk.toml` reveals what the project targets, and a stale
+// snapshot actively misleads.
+//
+// Returns true when wk.toml was rewritten. Save failures are surfaced so
+// callers can decide whether to warn or fail; most callers should warn —
+// a stale snapshot does not prevent the current command from running.
+func refreshSnapshotIfStale(projectRoot string, cfg *config.Config, profile *auth.Profile) (bool, error) {
+	if cfg == nil || profile == nil || projectRoot == "" {
+		return false, nil
+	}
+	if cfg.Workspace == profile.Workspace &&
+		cfg.WorkspaceID == profile.WorkspaceID &&
+		cfg.Environment == profile.Environment &&
+		cfg.Email == profile.Email {
+		return false, nil
+	}
+	cfg.Workspace = profile.Workspace
+	cfg.WorkspaceID = profile.WorkspaceID
+	cfg.Environment = profile.Environment
+	cfg.Email = profile.Email
+	if err := config.Save(config.ProjectConfigPath(projectRoot), cfg); err != nil {
+		return false, fmt.Errorf("refreshing wk.toml snapshot: %w", err)
+	}
+	return true, nil
 }

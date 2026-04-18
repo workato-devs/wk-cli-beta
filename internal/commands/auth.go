@@ -355,7 +355,8 @@ func newAuthSwitchCmd() *cobra.Command {
 			name := args[0]
 			pm := auth.NewProfileManager()
 
-			if _, err := pm.GetProfile(name); err != nil {
+			profile, err := pm.GetProfile(name)
+			if err != nil {
 				// Keychain miss: check if the name exists in profiles.env to
 				// give a more useful error. File-store profiles are project-
 				// scoped and cannot be set as the global active profile.
@@ -379,6 +380,37 @@ func newAuthSwitchCmd() *cobra.Command {
 			}
 
 			fmt.Fprintf(os.Stdout, "Switched to profile %q\n", name)
+
+			// When run inside a project directory, also rebind the project to
+			// the new profile: rewrite wk.toml's profile field and refresh
+			// the informational snapshot. Addresses issue #33.
+			if cwd, werr := os.Getwd(); werr == nil {
+				if root, rerr := config.FindProjectRoot(cwd); rerr == nil {
+					if cfg, cerr := config.Load(config.ProjectConfigPath(root)); cerr == nil {
+						prev := cfg.Profile
+						changedProfile := prev != name
+						if changedProfile {
+							cfg.Profile = name
+						}
+						refreshed, ferr := refreshSnapshotIfStale(root, cfg, profile)
+						if ferr != nil {
+							fmt.Fprintf(os.Stderr, "warning: %v\n", ferr)
+						} else if changedProfile && !refreshed {
+							// refreshSnapshotIfStale only saves when snapshot
+							// fields drift; persist the profile-only change.
+							if err := config.Save(config.ProjectConfigPath(root), cfg); err != nil {
+								fmt.Fprintf(os.Stderr, "warning: updating wk.toml profile: %v\n", err)
+							} else {
+								fmt.Fprintf(os.Stdout, "Updated wk.toml: profile %q -> %q\n", prev, name)
+							}
+						} else if changedProfile {
+							fmt.Fprintf(os.Stdout, "Updated wk.toml: profile %q -> %q (snapshot refreshed)\n", prev, name)
+						} else if refreshed {
+							fmt.Fprintf(os.Stdout, "Refreshed wk.toml snapshot for profile %q\n", name)
+						}
+					}
+				}
+			}
 			return nil
 		},
 	}
