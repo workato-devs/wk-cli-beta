@@ -18,12 +18,20 @@ import (
 // Per ADR-005 Decision 1, metas live under the project's .wk/ mirror
 // tree — the asset at <root>/<rel> has its meta at
 // <root>/.wk/<rel>.meta.json. Meta files never sit next to assets.
+//
+// RecipeName is populated only when Type == "recipe" and the JSON body
+// in the pull zip contained a parsable top-level "name" field. The
+// Workato package-manifest zip intentionally omits server-side IDs
+// (the wk recipes export endpoint is the only source for those), so
+// downstream local-cleanup paths (e.g. wk recipes delete) match by
+// name — resolving an ID to a name via a single API call first.
 type AssetMeta struct {
 	ServerPath   string    `json:"server_path"`
 	ZipName      string    `json:"zip_name"`
 	Folder       string    `json:"folder"`
 	Type         string    `json:"type"` // "recipe", "connection"
 	Version      int       `json:"version"`
+	RecipeName   string    `json:"recipe_name,omitempty"`
 	ContentHash  string    `json:"content_hash"` // SHA256
 	LastPulledAt time.Time `json:"last_pulled_at"`
 }
