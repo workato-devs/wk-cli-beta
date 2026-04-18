@@ -10,9 +10,14 @@ type RecipeService interface {
 	Stop(ctx context.Context, id int) error
 	Export(ctx context.Context, id int) ([]byte, error)
 	Import(ctx context.Context, folderID int, data []byte) (*Recipe, error)
+	Update(ctx context.Context, id int, data []byte) error
+	Delete(ctx context.Context, id int) error
 	ListJobs(ctx context.Context, recipeID int, opts *JobListOptions) ([]Job, error)
 	Copy(ctx context.Context, recipeID, folderID int) (*Recipe, error)
 	Connect(ctx context.Context, recipeID int, adapterName string, connectionID int) error
+	ListVersions(ctx context.Context, recipeID, page, perPage int) ([]RecipeVersion, error)
+	GetVersion(ctx context.Context, recipeID, versionID int) (*RecipeVersion, error)
+	UpdateVersionComment(ctx context.Context, recipeID, versionID int, comment string) (*RecipeVersion, error)
 }
 
 // RecipeListOptions configures recipe list filtering.

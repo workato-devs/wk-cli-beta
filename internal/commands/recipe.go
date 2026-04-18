@@ -5,12 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
+	"github.com/workato-devs/wk-cli-beta/internal/config"
 	"github.com/workato-devs/wk-cli-beta/internal/plugin"
+	"github.com/workato-devs/wk-cli-beta/internal/sync"
 )
 
 func newRecipesCmd() *cobra.Command {
@@ -25,10 +28,13 @@ func newRecipesCmd() *cobra.Command {
 	cmd.AddCommand(newRecipesStopCmd())
 	cmd.AddCommand(newRecipesExportCmd())
 	cmd.AddCommand(newRecipesImportCmd())
+	cmd.AddCommand(newRecipesUpdateCmd())
+	cmd.AddCommand(newRecipesDeleteCmd())
 	cmd.AddCommand(newRecipesJobsCmd())
 	cmd.AddCommand(newRecipesCopyCmd())
 	cmd.AddCommand(newRecipesConnectCmd())
 	cmd.AddCommand(newRecipeValidateCmd())
+	cmd.AddCommand(newRecipesVersionsCmd())
 	return cmd
 }
 
@@ -442,6 +448,364 @@ func newRecipesConnectCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("adapter")
 	_ = cmd.MarkFlagRequired("connection")
 	return cmd
+}
+
+// newRecipesUpdateCmd updates an existing recipe's code/config from a
+// local JSON file. Uses PUT /recipes/{id} — the create/update split
+// mirrors the Workato API, which treats POST as create and PUT as update.
+// Pre-flights with Get() to block updates on running recipes, since the
+// API rejects them and the resulting error is opaque.
+func newRecipesUpdateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update <id> <path>",
+		Short: "Update an existing recipe from a JSON file",
+		Long: `Replace an existing recipe's code/config with the contents of a local JSON
+file via PUT /api/recipes/:id. The recipe must be stopped — the API rejects
+updates to running recipes. Use "wk recipes stop <id>" first if needed.`,
+		Args: requireArgs(2, "recipe ID and file path are required, e.g.: wk recipes update <id> <path>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := resolveAPIClient(cmd)
+			if err != nil {
+				return err
+			}
+			id, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid recipe ID: %s", args[0])
+			}
+			data, err := os.ReadFile(args[1])
+			if err != nil {
+				return fmt.Errorf("reading file: %w", err)
+			}
+
+			existing, gerr := client.Recipes().Get(cmd.Context(), id)
+			if gerr != nil {
+				return fmt.Errorf("fetching recipe %d: %w", id, gerr)
+			}
+			if existing.Running {
+				return fmt.Errorf("recipe %d is running; stop it first (wk recipes stop %d)", id, id)
+			}
+
+			if err := client.Recipes().Update(cmd.Context(), id, data); err != nil {
+				return err
+			}
+
+			updated, gerr := client.Recipes().Get(cmd.Context(), id)
+			if gerr != nil {
+				// Update succeeded; we just can't show the new version number.
+				fmt.Fprintf(os.Stdout, "Recipe %d updated\n", id)
+				return nil
+			}
+			fmt.Fprintf(os.Stdout, "Recipe %d updated (version %d)\n", id, updated.Version)
+			return nil
+		},
+	}
+	return cmd
+}
+
+// newRecipesDeleteCmd removes a recipe from the Workato workspace (and,
+// when running inside a wk project, cleans up the corresponding local
+// .recipe.json + .wk-meta.json pair by matching the recipe's name).
+//
+// The pull-side zip doesn't carry server-side IDs — only the recipe's
+// name — so local-cleanup happens by name. When the user passes an ID,
+// we fetch the recipe's name via a single GET before deleting.
+//
+// --local-only skips the DELETE. It still uses GET to resolve ID→name
+// unless the caller also passed --name (in which case no API is hit).
+// Useful for cleaning up orphans left by earlier wk pull runs that
+// pre-date the A3 deletion-reconciliation behavior.
+//
+// --name matches local files directly and resolves the server ID via
+// List for the DELETE. Ambiguous matches are an error — fall back to ID.
+func newRecipesDeleteCmd() *cobra.Command {
+	var (
+		flagLocalOnly bool
+		flagByName    string
+	)
+	cmd := &cobra.Command{
+		Use:   "delete [id]",
+		Short: "Delete a recipe (server and/or local)",
+		Long: `Delete a recipe from the Workato workspace. When invoked inside a wk
+project, also removes the matching local .recipe.json and .wk-meta.json
+files — matched by the recipe's name, since pull zips don't carry
+server-side IDs.
+
+Use --name to delete by recipe name instead of ID (exact match).
+Use --local-only to skip the server delete and only clean up local files.
+
+Pure-offline variant: "wk recipes delete --name <name> --local-only"
+does no API call at all and is safe when the recipe is already gone.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if flagByName == "" && len(args) == 0 {
+				return fmt.Errorf("recipe ID or --name is required")
+			}
+			if flagByName != "" && len(args) > 0 {
+				return fmt.Errorf("pass either an ID or --name, not both")
+			}
+
+			var (
+				id         int
+				recipeName = flagByName
+			)
+
+			// ID supplied — resolve to a recipe name via GET so local
+			// cleanup has something to match against. This also lets the
+			// server-delete step emit a useful "deleting recipe N (name)"
+			// message later.
+			if len(args) == 1 {
+				parsed, err := strconv.Atoi(args[0])
+				if err != nil {
+					return fmt.Errorf("invalid recipe ID: %s", args[0])
+				}
+				id = parsed
+
+				client, _, err := resolveAPIClient(cmd)
+				if err != nil {
+					return err
+				}
+				recipe, gerr := client.Recipes().Get(cmd.Context(), id)
+				if gerr != nil {
+					// Most likely the recipe is already gone server-side.
+					// For --local-only the user can retry with --name.
+					if flagLocalOnly {
+						return fmt.Errorf("fetching recipe %d to resolve name: %w\n(pass --name <name> to clean up without an API lookup)", id, gerr)
+					}
+					return fmt.Errorf("fetching recipe %d: %w", id, gerr)
+				}
+				recipeName = recipe.Name
+			}
+
+			// Name supplied — resolve the ID via List (only needed when
+			// we'll actually hit the DELETE endpoint).
+			if flagByName != "" && !flagLocalOnly {
+				client, _, err := resolveAPIClient(cmd)
+				if err != nil {
+					return err
+				}
+				resolved, rerr := resolveRecipeIDByName(cmd, client, flagByName)
+				if rerr != nil {
+					return rerr
+				}
+				id = resolved
+			}
+
+			if !flagLocalOnly {
+				client, _, err := resolveAPIClient(cmd)
+				if err != nil {
+					return err
+				}
+				if err := client.Recipes().Delete(cmd.Context(), id); err != nil {
+					return fmt.Errorf("deleting recipe %d: %w", id, err)
+				}
+			}
+
+			removed := cleanupLocalRecipeFiles(recipeName)
+			if flagLocalOnly {
+				if len(removed) == 0 {
+					return fmt.Errorf("no local files found for recipe name %q", recipeName)
+				}
+				fmt.Fprintf(os.Stdout, "Recipe %q: removed %d local file(s)\n", recipeName, len(removed))
+				for _, p := range removed {
+					fmt.Fprintf(os.Stdout, "  %s\n", p)
+				}
+				return nil
+			}
+
+			if len(removed) > 0 {
+				fmt.Fprintf(os.Stdout, "Recipe %d (%q) deleted (also removed %d local file(s))\n", id, recipeName, len(removed))
+			} else {
+				fmt.Fprintf(os.Stdout, "Recipe %d (%q) deleted\n", id, recipeName)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&flagLocalOnly, "local-only", false, "Skip the server delete; only remove local files")
+	cmd.Flags().StringVar(&flagByName, "name", "", "Operate on the recipe with this exact name")
+	return cmd
+}
+
+// resolveRecipeIDByName looks up a recipe by exact name via the list API.
+// Ambiguous matches error out — the user should pick an ID explicitly.
+func resolveRecipeIDByName(cmd *cobra.Command, client api.Client, name string) (int, error) {
+	recipes, err := client.Recipes().List(cmd.Context(), &api.RecipeListOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("listing recipes for --name lookup: %w", err)
+	}
+	var matches []api.Recipe
+	for _, r := range recipes {
+		if r.Name == name {
+			matches = append(matches, r)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return 0, fmt.Errorf("no recipe found with name %q", name)
+	case 1:
+		return matches[0].ID, nil
+	default:
+		ids := make([]string, 0, len(matches))
+		for _, r := range matches {
+			ids = append(ids, strconv.Itoa(r.ID))
+		}
+		return 0, fmt.Errorf("recipe name %q is ambiguous — %d matches (IDs: %s); pass the ID explicitly", name, len(matches), strings.Join(ids, ", "))
+	}
+}
+
+// cleanupLocalRecipeFiles best-effort removes the .recipe.json and its
+// .wk-meta.json sidecar for the given recipe name. Matches by the
+// recipe_name field inside each meta — names are the stable, portable
+// identifier across environments, whereas server-side IDs are
+// per-environment and ephemeral (an ID that identifies a recipe in dev
+// is a different recipe in prod). The pull zip format reflects this:
+// it carries names, not IDs.
+//
+// Runs only inside a wk project — elsewhere returns nil immediately.
+// Returns the list of files removed so the caller can report them.
+func cleanupLocalRecipeFiles(recipeName string) []string {
+	if recipeName == "" {
+		return nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	root, err := config.FindProjectRoot(cwd)
+	if err != nil {
+		return nil
+	}
+	cfg, err := config.Load(config.ProjectConfigPath(root))
+	if err != nil {
+		return nil
+	}
+
+	var removed []string
+	for _, entry := range cfg.Sync {
+		localDir := filepath.Join(root, entry.LocalPath)
+		metas, err := sync.FindMetaFiles(root, localDir)
+		if err != nil {
+			continue
+		}
+		for rel, meta := range metas {
+			if !metaMatchesRecipe(meta, recipeName) {
+				continue
+			}
+			assetAbs := filepath.Join(localDir, rel)
+			metaAbs, mperr := sync.MetaPath(root, assetAbs)
+			if mperr != nil {
+				continue
+			}
+			if err := os.Remove(assetAbs); err == nil {
+				removed = append(removed, assetAbs)
+			}
+			if err := os.Remove(metaAbs); err == nil {
+				removed = append(removed, metaAbs)
+			}
+		}
+	}
+	return removed
+}
+
+// metaMatchesRecipe returns true when the AssetMeta identifies the asset
+// as the recipe with the given name. Matching is exact on meta.RecipeName
+// — the Workato package-manifest zip carries recipe names but not IDs
+// (and IDs are per-environment anyway), so name is the only key that
+// round-trips cleanly across dev/prod.
+//
+// Legacy metas written before RecipeName existed return false here; the
+// user remedy is a single wk pull, which re-writes metas with the name.
+func metaMatchesRecipe(meta *sync.AssetMeta, recipeName string) bool {
+	if meta == nil || meta.Type != "recipe" {
+		return false
+	}
+	return meta.RecipeName != "" && meta.RecipeName == recipeName
+}
+
+// newRecipesVersionsCmd is the parent of the versions-management subtree.
+// Calling it without a subcommand (or with "list") prints the version
+// history for a given recipe.
+func newRecipesVersionsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "versions <recipe_id>",
+		Short: "Manage recipe version history",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runRecipesVersionsList,
+	}
+	cmd.AddCommand(newRecipesVersionsCommentCmd())
+	return cmd
+}
+
+func runRecipesVersionsList(cmd *cobra.Command, args []string) error {
+	rctx, err := BuildRunContext(cmd)
+	if err != nil {
+		return err
+	}
+	client, _, err := resolveAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+	id, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid recipe ID: %s", args[0])
+	}
+
+	versions, err := client.Recipes().ListVersions(cmd.Context(), id, 0, 0)
+	if err != nil {
+		return err
+	}
+
+	if flagJSON {
+		return rctx.Formatter.Format(os.Stdout, versions)
+	}
+
+	headers := []string{"VERSION", "ID", "AUTHOR", "COMMENT", "CREATED AT"}
+	rows := make([][]string, 0, len(versions))
+	for _, v := range versions {
+		comment := "—"
+		if v.Comment != nil && *v.Comment != "" {
+			comment = *v.Comment
+		}
+		rows = append(rows, []string{
+			strconv.Itoa(v.VersionNo),
+			strconv.Itoa(v.ID),
+			v.AuthorName,
+			comment,
+			v.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+}
+
+func newRecipesVersionsCommentCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "comment <recipe_id> <version_id> <comment>",
+		Short: "Set or update the comment on a recipe version",
+		Args:  requireArgs(3, "recipe ID, version ID, and comment are required, e.g.: wk recipes versions comment <recipe_id> <version_id> <comment>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := resolveAPIClient(cmd)
+			if err != nil {
+				return err
+			}
+			recipeID, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid recipe ID: %s", args[0])
+			}
+			versionID, err := strconv.Atoi(args[1])
+			if err != nil {
+				return fmt.Errorf("invalid version ID: %s", args[1])
+			}
+			comment := args[2]
+
+			// The PATCH response shape varies (sometimes the wrapper omits
+			// the ID), so report from the arg we already have. The returned
+			// *RecipeVersion is still available for future JSON output.
+			if _, err := client.Recipes().UpdateVersionComment(cmd.Context(), recipeID, versionID, comment); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stdout, "Version %d comment updated\n", versionID)
+			return nil
+		},
+	}
 }
 
 // newRecipeValidateCmd creates a "validate" subcommand that delegates to the

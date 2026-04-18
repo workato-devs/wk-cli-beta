@@ -17,6 +17,20 @@ type Recipe struct {
 	Config      any       `json:"config,omitempty"`
 }
 
+// RecipeVersion represents a single entry in a recipe's version history
+// (GET /recipes/:id/versions). Comment is a pointer because the API may
+// return null for versions that were never commented; *string preserves
+// the distinction between "no comment" and "empty comment".
+type RecipeVersion struct {
+	ID          int       `json:"id"`
+	VersionNo   int       `json:"version_no"`
+	Comment     *string   `json:"comment,omitempty"`
+	AuthorName  string    `json:"author_name"`
+	AuthorEmail string    `json:"author_email"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // Connection represents a Workato connection.
 type Connection struct {
 	ID                  int       `json:"id"`

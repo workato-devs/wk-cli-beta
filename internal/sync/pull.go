@@ -192,14 +192,25 @@ func (e *SyncEngine) extractZip(zipData []byte, localDir string, serverPath stri
 			}
 		}
 
-		// Write/update sidecar meta under .wk/.
+		// Write/update sidecar meta under .wk/. Extract recipe name from
+		// the JSON body when possible so wk recipes delete (and similar
+		// local-cleanup paths) can match metas to server recipes reliably,
+		// regardless of how the filename was chosen. The package-manifest
+		// zip does not carry server-side IDs — name is the only stable
+		// key available here.
+		assetType := inferAssetType(relPath)
 		meta := &AssetMeta{
 			ServerPath:   serverPath + "/" + relPath,
 			ZipName:      f.Name,
 			Folder:       filepath.Dir(relPath),
-			Type:         inferAssetType(relPath),
+			Type:         assetType,
 			ContentHash:  newHash,
 			LastPulledAt: time.Now().UTC(),
+		}
+		if assetType == "recipe" && isJSON(relPath) {
+			if name := extractJSONStringField(data, "name"); name != "" {
+				meta.RecipeName = name
+			}
 		}
 		metaPath, err := MetaPath(e.projectRoot, absPath)
 		if err != nil {
@@ -369,6 +380,25 @@ func normalizeJSON(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return append(out, '\n'), nil
+}
+
+// extractJSONStringField parses data as JSON and returns the string value
+// at the given top-level key, or "" if the field is missing, the parse
+// fails, or the value isn't a string. Best-effort and silent — callers
+// use this to enrich metadata, not to validate the document.
+func extractJSONStringField(data []byte, key string) string {
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return ""
+	}
+	v, ok := obj[key]
+	if !ok {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // inferAssetType guesses the asset type from a filename.

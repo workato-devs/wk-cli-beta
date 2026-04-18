@@ -1,6 +1,10 @@
 package sync
 
 import (
+	"archive/zip"
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -52,6 +56,30 @@ func TestNormalizeJSON_InvalidInput(t *testing.T) {
 	}
 }
 
+func TestExtractJSONStringField(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+		key  string
+		want string
+	}{
+		{"top-level name", `{"name": "slack_bot", "version": 3}`, "name", "slack_bot"},
+		{"missing key", `{"other": "x"}`, "name", ""},
+		{"malformed json", `not json`, "name", ""},
+		{"wrong type (number)", `{"name": 123}`, "name", ""},
+		{"nested name ignored", `{"meta": {"name": "slack_bot"}}`, "name", ""},
+		{"empty object", `{}`, "name", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractJSONStringField([]byte(tc.data), tc.key)
+			if got != tc.want {
+				t.Errorf("extractJSONStringField(%q, %q) = %q, want %q", tc.data, tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInferAssetType(t *testing.T) {
 	tests := []struct {
 		path string
@@ -76,6 +104,69 @@ func TestInferAssetType(t *testing.T) {
 				t.Errorf("inferAssetType(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+// buildZipBytes builds an in-memory zip from a map of relative path -> body.
+func buildZipBytes(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for name, body := range files {
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatalf("zip create %s: %v", name, err)
+		}
+		if _, err := f.Write(body); err != nil {
+			t.Fatalf("zip write %s: %v", name, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// Post-fix regression: extractZip must populate AssetMeta.RecipeName from
+// the top-level "name" field of each recipe JSON. Matching by name (not
+// ID) is the correct semantic because IDs are per-environment and
+// ephemeral — the same recipe has different IDs in dev and prod — while
+// names round-trip cleanly. The Workato package-manifest zip reflects
+// this: it carries "name" but not "id".
+func TestExtractZip_PopulatesRecipeNameFromJSONBody(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".wk"), 0755); err != nil {
+		t.Fatalf("mkdir .wk: %v", err)
+	}
+	engine := &SyncEngine{projectRoot: root}
+	localDir := filepath.Join(root, "recipes")
+
+	// Realistic zip body shape: code, config, description, name, version —
+	// no "id" field. This mirrors what wk pull actually writes.
+	recipeBody := []byte(`{"name":"slack_bot","description":"bot","code":{"x":1},"config":[],"version":3,"private":false,"concurrency":1}`)
+	zipData := buildZipBytes(t, map[string][]byte{
+		"slack_bot.recipe.json": recipeBody,
+		"notes.txt":             []byte("not a recipe"),
+	})
+
+	results, seen, err := engine.extractZip(zipData, localDir, "Recipes/slack")
+	if err != nil {
+		t.Fatalf("extractZip: %v", err)
+	}
+	if len(results) == 0 || !seen["slack_bot.recipe.json"] {
+		t.Fatalf("extract results unexpected: results=%+v seen=%+v", results, seen)
+	}
+
+	metaPath, err := MetaPath(root, filepath.Join(localDir, "slack_bot.recipe.json"))
+	if err != nil {
+		t.Fatalf("MetaPath: %v", err)
+	}
+	meta, err := ReadMeta(metaPath)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.RecipeName != "slack_bot" {
+		t.Errorf("meta.RecipeName = %q, want %q (extracted from JSON body)", meta.RecipeName, "slack_bot")
 	}
 }
 

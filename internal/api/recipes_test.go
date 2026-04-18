@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +84,142 @@ func TestRecipeService_Connect(t *testing.T) {
 	err := client.Recipes().Connect(context.Background(), 42, "salesforce", 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecipeService_Delete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("method = %s, want DELETE", r.Method)
+		}
+		if r.URL.Path != "/recipes/42" {
+			t.Errorf("path = %s, want /recipes/42", r.URL.Path)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	if err := client.Recipes().Delete(context.Background(), 42); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+}
+
+func TestRecipeService_Update_StringifiesCodeAndConfig(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PUT" {
+			t.Errorf("method = %s, want PUT", r.Method)
+		}
+		if r.URL.Path != "/recipes/42" {
+			t.Errorf("path = %s, want /recipes/42", r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&captured)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	// Export-style JSON: code and config are objects (not pre-stringified)
+	// and a stray folder_id exists — Update must stringify the first two
+	// and drop the third to match Import's contract.
+	body := []byte(`{"name":"r","folder_id":99,"code":{"x":1},"config":[{"k":"v"}]}`)
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	if err := client.Recipes().Update(context.Background(), 42, body); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, hasFolder := captured["folder_id"]; hasFolder {
+		t.Errorf("folder_id should be stripped on update; body = %+v", captured)
+	}
+	if s, ok := captured["code"].(string); !ok || s != `{"x":1}` {
+		t.Errorf("code not stringified; got %T %v", captured["code"], captured["code"])
+	}
+	if s, ok := captured["config"].(string); !ok || s != `[{"k":"v"}]` {
+		t.Errorf("config not stringified; got %T %v", captured["config"], captured["config"])
+	}
+}
+
+func TestRecipeService_ListVersions_DataWrapper(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/recipes/42/versions" {
+			t.Errorf("path = %s, want /recipes/42/versions", r.URL.Path)
+		}
+		if per := r.URL.Query().Get("per_page"); per != "50" {
+			t.Errorf("per_page = %q, want 50", per)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Note the {"data": ...} wrapper, distinct from {"items": ...}
+		w.Write([]byte(`{"data":[{"id":1,"version_no":2,"author_name":"Zayne","author_email":"z@x","created_at":"2026-04-13T14:55:25Z","updated_at":"2026-04-13T14:55:25Z"}]}`))
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	vs, err := client.Recipes().ListVersions(context.Background(), 42, 0, 50)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(vs) != 1 || vs[0].VersionNo != 2 || vs[0].AuthorName != "Zayne" {
+		t.Errorf("versions = %+v, want single entry parsed from data wrapper", vs)
+	}
+}
+
+func TestRecipeService_GetVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/recipes/42/versions/99" {
+			t.Errorf("path = %s, want /recipes/42/versions/99", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":99,"version_no":3}`))
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	v, err := client.Recipes().GetVersion(context.Background(), 42, 99)
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if v.ID != 99 || v.VersionNo != 3 {
+		t.Errorf("version = %+v, want ID=99 VersionNo=3", v)
+	}
+}
+
+func TestRecipeService_UpdateVersionComment(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" {
+			t.Errorf("method = %s, want PATCH", r.Method)
+		}
+		if r.URL.Path != "/recipes/42/versions/99" {
+			t.Errorf("path = %s, want /recipes/42/versions/99", r.URL.Path)
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["comment"] != "ok" {
+			t.Errorf("comment = %v, want 'ok'", body["comment"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":99,"version_no":3,"comment":"ok"}`))
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	v, err := client.Recipes().UpdateVersionComment(context.Background(), 42, 99, "ok")
+	if err != nil {
+		t.Fatalf("UpdateVersionComment: %v", err)
+	}
+	if v.Comment == nil || *v.Comment != "ok" {
+		t.Errorf("comment roundtrip failed: %+v", v)
+	}
+}
+
+func TestRecipeService_UpdateVersionComment_TooLong(t *testing.T) {
+	client := NewHTTPClient("http://unused", "test-token")
+	long := ""
+	for i := 0; i < 256; i++ {
+		long += "x"
+	}
+	_, err := client.Recipes().UpdateVersionComment(context.Background(), 42, 99, long)
+	if err == nil || !strings.Contains(err.Error(), "255-character limit") {
+		t.Errorf("err = %v, want 255-character limit", err)
 	}
 }
