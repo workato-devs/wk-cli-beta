@@ -168,13 +168,16 @@ func TestComputeProfileName(t *testing.T) {
 	cases := []struct {
 		workspace, environment, region, want string
 	}{
-		// ADR-006 examples.
-		{"Acme Corp", "prod", "us", "acme-corp-prod"},
-		{"Acme Corp", "prod", "eu", "acme-corp-prod-eu"},
-		// Region suffix only for non-default region.
-		{"Acme", "dev", "us", "acme-dev"},
-		{"Acme", "dev", "", "acme-dev"},
-		{"Acme", "dev", "jp", "acme-dev-jp"},
+		// ADR-006 examples: region is always the leading component.
+		{"Acme Corp", "prod", "us", "us-acme-corp-prod"},
+		{"Acme Corp", "prod", "eu", "eu-acme-corp-prod"},
+		{"Acme", "dev", "us", "us-acme-dev"},
+		// Empty region falls back to config.DefaultRegion ("us").
+		{"Acme", "dev", "", "us-acme-dev"},
+		{"Acme", "dev", "jp", "jp-acme-dev"},
+		// Coverage for the two newly-added regions.
+		{"Acme", "prod", "il", "il-acme-prod"},
+		{"Acme", "prod", "cn", "cn-acme-prod"},
 	}
 	for _, c := range cases {
 		got := computeProfileName(c.workspace, c.environment, c.region)

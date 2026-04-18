@@ -3,6 +3,8 @@ package auth
 import (
 	"strings"
 	"testing"
+
+	"github.com/workato-devs/wk-cli-beta/internal/config"
 )
 
 func TestRegionIsValid(t *testing.T) {
@@ -15,6 +17,9 @@ func TestRegionIsValid(t *testing.T) {
 		{RegionJP, true},
 		{RegionAU, true},
 		{RegionSG, true},
+		{RegionIL, true},
+		{RegionCN, true},
+		{RegionTrial, true},
 		{"invalid", false},
 		{"", false},
 	}
@@ -27,8 +32,28 @@ func TestRegionIsValid(t *testing.T) {
 
 func TestValidRegions(t *testing.T) {
 	regions := ValidRegions()
-	if len(regions) != 6 {
-		t.Errorf("ValidRegions() len = %d, want 6", len(regions))
+	if len(regions) != 8 {
+		t.Errorf("ValidRegions() len = %d, want 8", len(regions))
+	}
+}
+
+// TestBaseURL_AllRegions is a drift guard: every region returned by
+// ValidRegions() must have a non-empty URL in config.RegionURLs.
+// This catches the case where someone adds a new region to auth/types.go
+// but forgets to add the corresponding URL in config/defaults.go (or
+// vice versa — since config.BaseURL silently falls back to the US URL
+// for unknown regions, the bug would otherwise be latent).
+func TestBaseURL_AllRegions(t *testing.T) {
+	fallbackUS := config.BaseURL("us")
+	for _, r := range ValidRegions() {
+		got := config.BaseURL(string(r))
+		if got == "" {
+			t.Errorf("region %q: empty base URL", r)
+			continue
+		}
+		if r != RegionUS && got == fallbackUS {
+			t.Errorf("region %q: base URL equals US fallback %q — likely missing from RegionURLs", r, got)
+		}
 	}
 }
 

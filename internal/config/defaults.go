@@ -7,13 +7,20 @@ func TimeoutDuration(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// RegionURLs maps region identifiers to Workato base URLs.
+// RegionURLs maps region identifiers to Workato base URLs. Keep in sync
+// with auth.ValidRegions — TestBaseURL_AllRegions guards against drift.
+//
+// Note: the "cn" region intentionally uses the .workatoapp.cn domain per
+// Workato's allowlist docs (https://docs.workato.com/en/security/ip-allowlists.html);
+// it does NOT follow the app.<region>.workato.com pattern used elsewhere.
 var RegionURLs = map[string]string{
-	"us": "https://www.workato.com",
-	"eu": "https://app.eu.workato.com",
-	"jp": "https://app.jp.workato.com",
-	"au": "https://app.au.workato.com",
+	"us":    "https://www.workato.com",
+	"eu":    "https://app.eu.workato.com",
+	"jp":    "https://app.jp.workato.com",
+	"au":    "https://app.au.workato.com",
 	"sg":    "https://app.sg.workato.com",
+	"il":    "https://app.il.workato.com",
+	"cn":    "https://app.workatoapp.cn",
 	"trial": "https://app.trial.workato.com",
 }
 

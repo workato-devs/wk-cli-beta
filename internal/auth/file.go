@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/workato-devs/wk-cli-beta/internal/config"
 	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 )
 
@@ -132,7 +133,7 @@ func (r fileRecord) toProfile() *Profile {
 	region := Region(r.region)
 	baseURL := r.baseURL
 	if baseURL == "" {
-		baseURL = defaultBaseURL(region)
+		baseURL = config.BaseURL(string(region))
 	}
 	return &Profile{
 		Name:        r.name,
@@ -151,25 +152,6 @@ func (r fileRecord) toCredential() *Credential {
 		Region:    Region(r.region),
 		StoreType: StoreFile,
 		CreatedAt: time.Now(),
-	}
-}
-
-// defaultBaseURL mirrors config.BaseURL but is declared here to avoid
-// importing internal/config from internal/auth.
-func defaultBaseURL(region Region) string {
-	switch region {
-	case RegionEU:
-		return "https://app.eu.workato.com"
-	case RegionJP:
-		return "https://app.jp.workato.com"
-	case RegionAU:
-		return "https://app.au.workato.com"
-	case RegionSG:
-		return "https://app.sg.workato.com"
-	case RegionTrial:
-		return "https://app.trial.workato.com"
-	default:
-		return "https://www.workato.com"
 	}
 }
 

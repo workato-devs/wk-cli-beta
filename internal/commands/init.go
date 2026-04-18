@@ -105,8 +105,9 @@ The layout is:
 
     <cwd>/<name>/
     ├── .wk/
-    │   └── wk.toml        (project config; gitignored via /.wk/)
-    ├── .gitignore         (with /.wk/ appended)
+    │   ├── wk.toml        (project config)
+    │   └── .gitignore     (self-ignores .wk/ contents; CLI never touches the
+    │                       project-root .gitignore)
     └── ...                (asset directories populated by pull/clone)
 
 Non-interactive mode (detected via --json, --no-input, or a non-TTY stdin)
@@ -330,9 +331,9 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 				return fmt.Errorf("saving config: %w", err)
 			}
 
-			// Append /.wk/ to .gitignore (idempotent). ADR-005 Decision 8.
-			if err := ensureGitignoreEntry(targetDir); err != nil {
-				return fmt.Errorf("updating .gitignore: %w", err)
+			// Write .wk/.gitignore (self-ignore). ADR-005 Decision 8.
+			if err := ensureWkGitignore(targetDir); err != nil {
+				return fmt.Errorf("writing .wk/.gitignore: %w", err)
 			}
 
 			result := map[string]string{
@@ -365,10 +366,20 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 // validateProjectName rejects project names that would scaffold outside
 // the CWD or otherwise break the "project name = container folder name"
 // invariant from ADR-005 Decision 1. The name must be a single, ordinary
-// path component — no separators, no traversal segments, no leading dots.
+// path component — no separators, no traversal segments, no leading dots,
+// no leading/trailing whitespace.
 func validateProjectName(name string) error {
 	if name == "" {
 		return fmt.Errorf("project name cannot be empty")
+	}
+	// Reject leading/trailing whitespace rather than silently trim. A name
+	// like " my-project" is invisible in shell output and creates a
+	// directory that breaks unquoted scripts (cd my-project fails) — almost
+	// always a typo worth surfacing loudly. The prompt for the interactive
+	// path already trims the newline via strings.TrimSpace before calling
+	// this validator, so clean interactive input still passes.
+	if trimmed := strings.TrimSpace(name); trimmed != name {
+		return fmt.Errorf("project name %q has leading or trailing whitespace — remove it and retry", name)
 	}
 	if strings.ContainsAny(name, "/\\") {
 		return fmt.Errorf("project name %q must not contain path separators", name)
@@ -393,34 +404,27 @@ func pluralY(n int) string {
 	return "ies"
 }
 
-// ensureGitignoreEntry appends "/.wk/" to <projectRoot>/.gitignore if not
-// already present. Creates the file if missing. ADR-005 Decision 8.
-func ensureGitignoreEntry(projectRoot string) error {
-	path := filepath.Join(projectRoot, ".gitignore")
-	const entry = "/.wk/"
+// wkGitignoreContent is the exact body of <projectRoot>/.wk/.gitignore.
+// The "*" + "!.gitignore" idiom hides every tool-managed file from git
+// without requiring the developer's project-root .gitignore to list .wk/,
+// while keeping the .gitignore itself visible and committable. See
+// ADR-005 Decision 8.
+const wkGitignoreContent = `# wk CLI — tool-managed directory. Contents are machine-local state
+# (project config, sidecar metadata, folder-ID cache). Do not commit.
+*
+!.gitignore
+`
 
-	existing, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
+// ensureWkGitignore writes <projectRoot>/.wk/.gitignore with the fixed
+// self-ignore content. The file is owned by the CLI — overwriting it
+// unconditionally is intentional so developers can rely on the content
+// never drifting. The project-root .gitignore is never touched: if the
+// developer maintains one, it remains their file.
+func ensureWkGitignore(projectRoot string) error {
+	wkDir := filepath.Join(projectRoot, config.ProjectDir)
+	if err := os.MkdirAll(wkDir, 0755); err != nil {
+		return fmt.Errorf("creating %s: %w", wkDir, err)
 	}
-
-	// Scan existing lines for a literal match (also accept bare ".wk/" or ".wk").
-	for _, line := range strings.Split(string(existing), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == entry || trimmed == ".wk/" || trimmed == ".wk" {
-			return nil
-		}
-	}
-
-	var buf strings.Builder
-	if len(existing) > 0 {
-		buf.Write(existing)
-		if !strings.HasSuffix(string(existing), "\n") {
-			buf.WriteByte('\n')
-		}
-		buf.WriteByte('\n')
-	}
-	buf.WriteString("# wk CLI — tool-managed directory\n")
-	buf.WriteString(entry + "\n")
-	return os.WriteFile(path, []byte(buf.String()), 0644)
+	path := filepath.Join(wkDir, ".gitignore")
+	return os.WriteFile(path, []byte(wkGitignoreContent), 0644)
 }

@@ -427,7 +427,7 @@ func TestInitStoreTypeFile_HydratesFromProfilesEnv(t *testing.T) {
 	}
 }
 
-func TestInitWritesGitignore(t *testing.T) {
+func TestInitWritesWkGitignore(t *testing.T) {
 	cleanupHome := setupTestHome(t)
 	defer cleanupHome()
 
@@ -443,16 +443,28 @@ func TestInitWritesGitignore(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "gitigproj", ".gitignore"))
+	// .wk/.gitignore should exist with the self-ignore content.
+	wkIgnore := filepath.Join(dir, "gitigproj", config.ProjectDir, ".gitignore")
+	data, err := os.ReadFile(wkIgnore)
 	if err != nil {
-		t.Fatalf("reading .gitignore: %v", err)
+		t.Fatalf("reading %s: %v", wkIgnore, err)
 	}
-	if !strings.Contains(string(data), "/.wk/") {
-		t.Errorf(".gitignore missing /.wk/ entry, got:\n%s", data)
+	body := string(data)
+	if !strings.Contains(body, "\n*\n") {
+		t.Errorf(".wk/.gitignore missing \"*\" pattern, got:\n%s", body)
+	}
+	if !strings.Contains(body, "!.gitignore") {
+		t.Errorf(".wk/.gitignore missing \"!.gitignore\" re-inclusion, got:\n%s", body)
+	}
+
+	// Project-root .gitignore must NOT be created — developer owns that file.
+	rootIgnore := filepath.Join(dir, "gitigproj", ".gitignore")
+	if _, err := os.Stat(rootIgnore); !os.IsNotExist(err) {
+		t.Errorf("project-root .gitignore should not exist, got err=%v", err)
 	}
 }
 
-func TestInitGitignoreIdempotent(t *testing.T) {
+func TestInitDoesNotModifyProjectRootGitignore(t *testing.T) {
 	cleanupHome := setupTestHome(t)
 	defer cleanupHome()
 
@@ -461,22 +473,69 @@ func TestInitGitignoreIdempotent(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	// Pre-create target with an existing .gitignore that already lists /.wk/.
-	projectDir := filepath.Join(dir, "idemproj")
+	// Pre-create target with a developer-owned .gitignore unrelated to wk.
+	projectDir := filepath.Join(dir, "devproj")
 	os.MkdirAll(projectDir, 0755)
-	os.WriteFile(filepath.Join(projectDir, ".gitignore"), []byte("node_modules/\n/.wk/\n"), 0644)
+	preExisting := "node_modules/\ndist/\n"
+	rootIgnore := filepath.Join(projectDir, ".gitignore")
+	if err := os.WriteFile(rootIgnore, []byte(preExisting), 0644); err != nil {
+		t.Fatalf("seeding .gitignore: %v", err)
+	}
 
 	root := NewRootCmd()
 	root.AddCommand(newInitCmd())
-	root.SetArgs([]string{"init", "--name", "idemproj", "--profile", "dev", "--json"})
+	root.SetArgs([]string{"init", "--name", "devproj", "--profile", "dev", "--json"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
-	count := strings.Count(string(data), "/.wk/")
-	if count != 1 {
-		t.Errorf(".gitignore should contain /.wk/ exactly once, got %d:\n%s", count, data)
+	// Project-root .gitignore should be byte-for-byte unchanged.
+	got, err := os.ReadFile(rootIgnore)
+	if err != nil {
+		t.Fatalf("reading .gitignore: %v", err)
+	}
+	if string(got) != preExisting {
+		t.Errorf("project-root .gitignore was modified.\nwant: %q\ngot:  %q", preExisting, got)
+	}
+}
+
+func TestInitWkGitignoreIdempotent(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// First init.
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "idemproj", "--profile", "dev", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first init: %v", err)
+	}
+
+	wkIgnore := filepath.Join(dir, "idemproj", config.ProjectDir, ".gitignore")
+	first, err := os.ReadFile(wkIgnore)
+	if err != nil {
+		t.Fatalf("reading .wk/.gitignore: %v", err)
+	}
+
+	// Re-run init with --overwrite; .wk/.gitignore should be byte-for-byte
+	// identical afterwards (CLI writes a fixed body).
+	root = NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "idemproj", "--profile", "dev", "--overwrite", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("overwrite init: %v", err)
+	}
+	second, err := os.ReadFile(wkIgnore)
+	if err != nil {
+		t.Fatalf("reading .wk/.gitignore after overwrite: %v", err)
+	}
+	if string(first) != string(second) {
+		t.Errorf(".wk/.gitignore drifted after --overwrite.\nfirst:  %q\nsecond: %q", first, second)
 	}
 }
 
@@ -651,6 +710,38 @@ func TestInitRejectsTraversalNames(t *testing.T) {
 	}
 }
 
+func TestInitRejectsWhitespaceInName(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// The ` my-project` form (leading space) is invisible in many shell
+	// contexts — surface it loudly instead of silently creating a weirdly
+	// named directory.
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", " my-project", "--profile", "dev", "--json"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error for leading-whitespace name, got nil")
+	}
+	if !strings.Contains(err.Error(), "whitespace") {
+		t.Errorf("error = %q, want message about whitespace", err.Error())
+	}
+
+	// The directory should not have been created.
+	if _, err := os.Stat(filepath.Join(dir, " my-project")); !os.IsNotExist(err) {
+		t.Errorf("directory with leading whitespace should not exist, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "my-project")); !os.IsNotExist(err) {
+		t.Errorf("trimmed directory should not exist either (we reject, not silently trim), got err=%v", err)
+	}
+}
+
 func TestValidateProjectName(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -666,6 +757,12 @@ func TestValidateProjectName(t *testing.T) {
 		{"foo/bar", true},
 		{"foo\\bar", true},
 		{"foo\x00bar", true},
+		// Leading/trailing whitespace — invisible typos from unquoted shells.
+		{" my-project", true},
+		{"my-project ", true},
+		{"\tmy-project", true},
+		{"my-project\n", true},
+		{"   ", true}, // whitespace-only collapses to whitespace-rejected
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {

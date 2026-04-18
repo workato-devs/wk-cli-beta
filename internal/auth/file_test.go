@@ -99,13 +99,26 @@ TOKEN=wk-prod
 }
 
 func TestFileStore_BaseURLDefaultsFromRegion(t *testing.T) {
-	fs := writeProfilesEnv(t, "NAME=eu\nREGION=eu\nTOKEN=t\n")
-	p, err := fs.GetProfile("eu")
-	if err != nil {
-		t.Fatalf("GetProfile: %v", err)
+	cases := []struct {
+		region string
+		want   string
+	}{
+		{"eu", "https://app.eu.workato.com"},
+		{"il", "https://app.il.workato.com"},
+		// CN uses a distinct domain (.workatoapp.cn) per Workato's allowlist docs.
+		{"cn", "https://app.workatoapp.cn"},
 	}
-	if p.BaseURL != "https://app.eu.workato.com" {
-		t.Errorf("BaseURL = %q, want https://app.eu.workato.com", p.BaseURL)
+	for _, tc := range cases {
+		t.Run(tc.region, func(t *testing.T) {
+			fs := writeProfilesEnv(t, "NAME="+tc.region+"\nREGION="+tc.region+"\nTOKEN=t\n")
+			p, err := fs.GetProfile(tc.region)
+			if err != nil {
+				t.Fatalf("GetProfile: %v", err)
+			}
+			if p.BaseURL != tc.want {
+				t.Errorf("BaseURL = %q, want %q", p.BaseURL, tc.want)
+			}
+		})
 	}
 }
 

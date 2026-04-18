@@ -21,7 +21,7 @@ The resolution rules for required fields change in that mode:
 | `--token` | Prompted | Required — hard fail if missing |
 | `--environment` | Prompted | Required — hard fail if missing |
 | `--workspace` | Introspected from `GET /users/me` | Introspected identically |
-| `--name` | Auto-computed from `<workspace-slug>-<env>[-<region>]` | Auto-computed identically |
+| `--name` | Auto-computed from `<region>-<workspace-slug>-<env>` | Auto-computed identically |
 | `--region` | Defaults to `us` | Defaults to `us` |
 
 The intentional asymmetry: `wk auth login --token X` succeeds in a TTY (it
@@ -50,8 +50,8 @@ The CLI will:
 1. Call `GET /users/me` with the token to introspect the workspace — this
    also serves as token validation. A bad token aborts before anything is
    persisted.
-2. Compute the profile name as `<workspace-slug>-prod` (or
-   `<workspace-slug>-prod-<region>` when region is non-default).
+2. Compute the profile name as `<region>-<workspace-slug>-prod` — region
+   is always the leading component (e.g., `us-acme-corp-prod`, `eu-acme-corp-prod`).
 3. Write the profile and mark it active.
 
 Subsequent commands (e.g. `wk pull`, `wk push`) resolve credentials by

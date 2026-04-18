@@ -43,14 +43,14 @@ Adopt a container folder convention where all tool-managed state — project con
 ```
 ~/workato/                              (developer's CWD)
 └── my-project/                         (container = project root)
-    ├── .wk/                            (tool-managed — gitignored)
+    ├── .wk/                            (tool-managed — self-ignored via .wk/.gitignore)
     │   ├── wk.toml                     (project config)
     │   ├── meta.json                   (project-level metadata)
     │   ├── recipes/
     │   │   └── my_recipe.meta.json     (remote hash, last push timestamp, asset ID)
     │   └── connections/
     │       └── slack.meta.json
-    ├── .gitignore                      (includes /.wk/)
+    ├── .gitignore                      (developer-owned; CLI never writes here)
     ├── .wkignore                       (user-defined ignore patterns)
     ├── recipes/                        (created by first pull)
     │   └── my_recipe.recipe.json
@@ -58,7 +58,7 @@ Adopt a container folder convention where all tool-managed state — project con
         └── slack.connection.json
 ```
 
-**Why:** `.wk/` is to `wk` what `.git/` is to `git`. Consolidating all tool-managed state into a single directory means the project root contains only developer-facing files. No sidecar metadata clutters asset directories. A single `.gitignore` entry (`/.wk/`) covers all current and future tool-managed files.
+**Why:** `.wk/` is to `wk` what `.git/` is to `git`. Consolidating all tool-managed state into a single directory means the project root contains only developer-facing files. No sidecar metadata clutters asset directories. A self-ignore file inside `.wk/` (see Decision 8) hides the directory's contents from git without requiring the CLI to modify any file the developer owns.
 
 **Consequence:** `wk init` no longer treats the CWD as the project root. It always creates (or scaffolds into) a child directory. Developers who want the current directory to be the project root should use `wk clone` from the parent, or manually create the directory and run `wk init` from within it (though this is not the recommended workflow).
 
@@ -75,7 +75,7 @@ Adopt a container folder convention where all tool-managed state — project con
 5. If target directory does not exist → create it with `os.MkdirAll`
 6. Create `.wk/` directory inside the target
 7. Write `wk.toml` inside `.wk/`
-8. Append `/.wk/` to the project's `.gitignore` (create file if necessary)
+8. Write `.wk/.gitignore` with a self-ignore body (`*` plus `!.gitignore`). The project-root `.gitignore` is never touched (see Decision 8).
 
 **Why:** Step 3 replaces the previous hard-error behavior. Interactive prompting gives developers control. The `--overwrite` flag supports CI/CD and agent workflows where interactive prompts are unavailable. Step 4 (scaffold into existing directory) supports the case where a developer has already created a directory or initialized a Git repository before running `wk init`. Step 8 ensures tool-managed files never leak into version control.
 
@@ -100,7 +100,7 @@ Run from outside the project directory.
 
 - Creates `<local-path>/.wk/` and writes `wk.toml` inside
 - Writes `folder_id` to the sync entry immediately (since clone resolves the folder during setup)
-- Adds `/.wk/` to `.gitignore`
+- Writes `.wk/.gitignore` (self-ignore; see Decision 8)
 - Checks that the CWD is not already inside an existing project (same nesting guard as init)
 - The `Name` field in `wk.toml` matches the container folder name
 
@@ -148,25 +148,32 @@ configPath := filepath.Join(dir, ProjectDir, ProjectFile)
 
 **Why:** The inner directory structure depends on what assets exist on the server. Pre-creating empty directories would be misleading (implying assets exist when they don't) and would need to be kept in sync with the server's asset types. The RLCM zip extraction already handles directory creation correctly. The same applies to metadata subdirectories within `.wk/` — they are created when metadata is first written.
 
-### Decision 8: `.wk/` Is Fully Gitignored
+### Decision 8: `.wk/` Self-Ignores via `.wk/.gitignore`
 
-**Decision:** The entire `.wk/` directory is added to the project's `.gitignore` during `wk init` and `wk clone`. No files within `.wk/` are version-controlled.
+**Decision:** `wk init` and `wk clone` write a self-ignore file at `<project-root>/.wk/.gitignore` that hides every tool-managed file from git. The project-root `.gitignore` is never touched — that file belongs to the developer. A project may legitimately end up with two `.gitignore` files (the developer's at the root and the CLI's inside `.wk/`); that is intentional.
 
-`wk init` and `wk clone` append the following to `<project-root>/.gitignore` (creating the file if necessary):
+The fixed contents of `<project-root>/.wk/.gitignore`:
 
 ```
-# wk CLI — tool-managed directory
-/.wk/
+# wk CLI — tool-managed directory. Contents are machine-local state
+# (project config, sidecar metadata, folder-ID cache). Do not commit.
+*
+!.gitignore
 ```
 
-**Why:**
+**Why this structure:**
+
+- **`*`** hides every other file in `.wk/` from git, so `wk.toml`, sidecar metadata, and the folder-ID cache never appear as untracked state to the developer. This works regardless of whether the developer has listed `.wk/` in their own project-root `.gitignore`.
+- **`!.gitignore`** un-ignores this file itself, keeping it visible to `git status` and committable if the team wants a consistent ignore policy checked into the repo.
+
+**Why write-only-under-`.wk/`:**
 
 - **`wk.toml` contains environment-specific references.** The `workspace` field references a local auth profile. Different developers may use different profiles (personal tokens, team tokens, staging vs. production). Committing `wk.toml` would force a shared workspace identity or create constant merge conflicts.
 - **`folder_id` values are environment-specific.** Folder IDs may differ between Workato environments (staging workspace vs. production workspace). A committed `folder_id` from one developer's workspace would be meaningless to another.
 - **Sidecar metadata is machine-local.** Content hashes, pull timestamps, and zip entry names are per-developer state used for diff tracking. They have no meaning outside the machine that produced them.
-- **Single `.gitignore` entry.** One line (`/.wk/`) covers all current and future tool-managed files. No risk of metadata leaking into source control as new file types are added.
+- **The developer's project-root `.gitignore` is theirs.** Mutating a file the developer maintains (adding lines to a file that might be under their own version control, code review, or tooling) is overreach. Keeping the CLI's state behind a self-ignore file inside its own directory avoids that coupling entirely.
 
-**Precedent:** `cargo new` adds `/target/` to `.gitignore`. `npm init` adds `/node_modules/`. The tool-managed directory is always gitignored by default.
+**Precedent:** the `*` + `!.gitignore` idiom is the standard pattern used by per-directory ignore files in Rails (`log/.gitignore`, `tmp/.gitignore`), Go build systems (`testdata/.gitignore` in various projects), and similar tool-managed directories. This is a deliberate departure from `cargo new`'s and `npm init`'s practice of appending to the project-root `.gitignore` — those tools mutate a file developers own; we chose not to.
 
 ### Decision 9: Remote Folder IDs in `wk.toml`
 
@@ -242,7 +249,7 @@ test_fixtures/
 
 | Command | Change Required | Details |
 |---------|----------------|---------|
-| `wk init` | **Yes** | Create `.wk/` dir, write config inside, `.gitignore` entry, overwrite prompt/flag, nesting guard |
+| `wk init` | **Yes** | Create `.wk/` dir, write config inside, write `.wk/.gitignore`, overwrite prompt/flag, nesting guard |
 | `wk clone` | **Yes** | Same `.wk/` scaffolding as init, write `folder_id`, nesting guard |
 | `wk pull` | **Yes** | Read metadata from `.wk/`, respect `.wkignore`, use cached `folder_id` |
 | `wk push` | **Yes** | Read metadata from `.wk/`, respect `.wkignore`, use cached `folder_id` |
@@ -279,7 +286,7 @@ This is a **breaking change** for any existing projects initialized with the cur
 1. Creating the `.wk/` directory in the project root
 2. Moving `wk.toml` from the project root into `.wk/`
 3. Moving all `.wk-meta.json` sidecar files into the `.wk/` mirror structure (strip the `.wk-meta.json` suffix, rewrite as `.meta.json` under `.wk/<relative-path>/`)
-4. Adding `/.wk/` to `.gitignore`
+4. Writing a `.wk/.gitignore` self-ignore file (the CLI no longer modifies the project-root `.gitignore`)
 5. Removing old `.wk-meta.json` files from asset directories
 6. All relative paths in `wk.toml` remain valid (they are relative to the project root, which is the parent of `.wk/`)
 

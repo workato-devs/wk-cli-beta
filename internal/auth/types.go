@@ -6,17 +6,19 @@ import "time"
 type Region string
 
 const (
-	RegionUS Region = "us"
-	RegionEU Region = "eu"
-	RegionJP Region = "jp"
-	RegionAU Region = "au"
+	RegionUS    Region = "us"
+	RegionEU    Region = "eu"
+	RegionJP    Region = "jp"
+	RegionAU    Region = "au"
 	RegionSG    Region = "sg"
+	RegionIL    Region = "il"
+	RegionCN    Region = "cn"
 	RegionTrial Region = "trial"
 )
 
 // ValidRegions returns all supported regions.
 func ValidRegions() []Region {
-	return []Region{RegionUS, RegionEU, RegionJP, RegionAU, RegionSG, RegionTrial}
+	return []Region{RegionUS, RegionEU, RegionJP, RegionAU, RegionSG, RegionIL, RegionCN, RegionTrial}
 }
 
 // IsValid checks if a region string is a supported region.

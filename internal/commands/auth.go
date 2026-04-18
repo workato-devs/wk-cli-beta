@@ -122,7 +122,7 @@ requires --token and --environment explicitly. See ADR-006.`,
 				return fmt.Errorf("environment cannot be empty")
 			}
 
-			// Step 5: name. Auto-compute <workspace-slug>-<env>[-<region>]
+			// Step 5: name. Auto-compute <region>-<workspace-slug>-<env>
 			// when --name is omitted; in interactive mode, show the computed
 			// default in the prompt.
 			computed := computeProfileName(workspace, environment, region)
@@ -195,10 +195,10 @@ requires --token and --environment explicitly. See ADR-006.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "Profile name (default: <workspace-slug>-<environment>[-<region>])")
+	cmd.Flags().StringVar(&name, "name", "", "Profile name (default: <region>-<workspace-slug>-<environment>)")
 	cmd.Flags().StringVar(&workspace, "workspace", "", "Override workspace; must match the token's workspace (default: introspected from /users/me)")
 	cmd.Flags().StringVar(&environment, "environment", "", "Target environment (e.g. dev, staging, prod); required in non-interactive mode")
-	cmd.Flags().StringVar(&region, "region", config.DefaultRegion, "Workato region (us, eu, jp, au, sg)")
+	cmd.Flags().StringVar(&region, "region", config.DefaultRegion, "Workato region (us, eu, jp, au, sg, il, cn, trial (Developer Sandbox))")
 	cmd.Flags().StringVar(&token, "token", "", "Workato API token; required in non-interactive mode")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip overwrite confirmation if profile already exists")
 	cmd.Flags().BoolVar(&noInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
@@ -222,16 +222,17 @@ func isTerminal(f *os.File) bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
-// computeProfileName returns <workspace-slug>-<environment>[-<region>] per
-// ADR-006. The region suffix is appended only when region is non-default
-// (anything other than "us"), keeping names quiet in the common case and
-// disambiguating cross-region profiles.
+// computeProfileName returns <region>-<workspace-slug>-<environment> per
+// ADR-006. Region is always the leading component so that profiles sort
+// and group by region in `wk auth list`, and so the most discriminating
+// field is immediately visible rather than hidden behind slug collisions.
+// Empty region falls back to config.DefaultRegion ("us").
 func computeProfileName(workspace, environment, region string) string {
-	name := slugify(workspace) + "-" + environment
-	if region != "" && region != config.DefaultRegion {
-		name += "-" + region
+	r := region
+	if r == "" {
+		r = config.DefaultRegion
 	}
-	return name
+	return r + "-" + slugify(workspace) + "-" + environment
 }
 
 // slugify lowercases s, replaces non-alphanumerics with "-", collapses

@@ -22,8 +22,9 @@ func newCloneCmd() *cobra.Command {
 		Use:   "clone <folder-name>",
 		Short: "Clone a remote folder into a new local project",
 		Long: `Initialize a new wk project and pull assets from the specified remote
-folder. Creates <local-path>/.wk/wk.toml, appends /.wk/ to .gitignore, and
-caches the resolved Workato folder_id into the sync entry so subsequent
+folder. Creates <local-path>/.wk/wk.toml and <local-path>/.wk/.gitignore
+(self-ignore; the project-root .gitignore is never touched), and caches
+the resolved Workato folder_id into the sync entry so subsequent
 pull/push/diff calls skip the folder-hierarchy lookup.`,
 		Args: requireArgs(1, "folder name is required, e.g.: wk clone <folder-name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -77,8 +78,8 @@ pull/push/diff calls skip the folder-hierarchy lookup.`,
 				return fmt.Errorf("saving config: %w", err)
 			}
 
-			if err := ensureGitignoreEntry(absPath); err != nil {
-				return fmt.Errorf("updating .gitignore: %w", err)
+			if err := ensureWkGitignore(absPath); err != nil {
+				return fmt.Errorf("writing .wk/.gitignore: %w", err)
 			}
 
 			// Resolve API client
