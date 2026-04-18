@@ -88,7 +88,6 @@ func verifyServerPath(cmd *cobra.Command, client api.Client, serverPath string) 
 func newInitCmd() *cobra.Command {
 	var (
 		flagName        string
-		flagInitProfile string
 		flagServerPath  string
 		flagLocalPath   string
 		flagSyncMulti   []string
@@ -132,7 +131,11 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 			}
 
 			name := flagName
-			profile := flagInitProfile
+			// Read the persistent root --profile (-p) rather than a local
+			// shadow. A local init-only --profile would mask the persistent
+			// one and block -p entirely on `wk init` since Cobra picks the
+			// local long-flag over the inherited persistent pair.
+			profile := flagProfile
 			interactive := isInteractiveStdin() && !flagInitNoInput && !flagJSON
 
 			// In non-interactive mode, validate required flags upfront so
@@ -365,14 +368,16 @@ replacing an existing project. Mirrors the contract used by 'wk auth login'.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&flagName, "name", "", "Project name (also the container directory name)")
-	cmd.Flags().StringVar(&flagInitProfile, "profile", "", "Auth profile name")
-	cmd.Flags().StringVar(&flagServerPath, "server-path", "", "Initial sync server path (single-entry shorthand; pairs with --local-path)")
-	cmd.Flags().StringVar(&flagLocalPath, "local-path", "", "Initial sync local path (defaults to \".\"; only valid with --server-path)")
+	cmd.Flags().StringVarP(&flagName, "name", "n", "", "Project name (also the container directory name)")
+	// --profile / -p reach init via the persistent root flag (root.go). A
+	// local copy would shadow the inherited persistent pair and silently
+	// break -p on `wk init`.
+	cmd.Flags().StringVarP(&flagServerPath, "server-path", "s", "", "Initial sync server path (single-entry shorthand; pairs with --local-path)")
+	cmd.Flags().StringVarP(&flagLocalPath, "local-path", "l", "", "Initial sync local path (defaults to \".\"; only valid with --server-path)")
 	cmd.Flags().StringArrayVar(&flagSyncMulti, "sync", nil, "Add a [[sync]] entry SERVER_PATH[:LOCAL_PATH] (repeatable; for multi-entry projects)")
 	cmd.Flags().BoolVar(&flagVerify, "verify", false, "Validate every configured server-path exists on Workato before saving")
 	cmd.Flags().BoolVar(&flagInitNoInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
-	cmd.Flags().BoolVar(&flagOverwrite, "overwrite", false, "Overwrite an existing project config without prompting (non-interactive mode)")
+	cmd.Flags().BoolVarP(&flagOverwrite, "overwrite", "o", false, "Overwrite an existing project config without prompting (non-interactive mode)")
 
 	return cmd
 }

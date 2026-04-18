@@ -69,10 +69,13 @@ Every command supports --json for machine-readable output.`,
 	}
 
 	pf := root.PersistentFlags()
-	pf.BoolVar(&flagJSON, "json", false, "Output as JSON")
+	// -v is intentionally unassigned: --verify (init) and --verbose both
+	// have a legitimate claim to it and the ambiguity isn't worth the
+	// keystroke. --verbose stays long-only.
+	pf.BoolVarP(&flagJSON, "json", "j", false, "Output as JSON")
 	pf.BoolVar(&flagVerbose, "verbose", false, "Enable verbose/debug logging")
-	pf.BoolVar(&flagQuiet, "quiet", false, "Suppress non-essential output")
-	pf.StringVar(&flagProfile, "profile", "", "Override active auth profile")
+	pf.BoolVarP(&flagQuiet, "quiet", "q", false, "Suppress non-essential output")
+	pf.StringVarP(&flagProfile, "profile", "p", "", "Override active auth profile")
 	pf.StringVar(&flagStoreType, "store-type", "", "Override credential store backend (keychain|file)")
 	pf.BoolVar(&flagNoColor, "no-color", false, "Disable color output")
 	pf.IntVar(&flagTimeout, "timeout", config.DefaultTimeout, "API timeout in seconds")

@@ -195,12 +195,12 @@ requires --token and --environment explicitly. See ADR-006.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "Profile name (default: <region>-<workspace-slug>-<environment>)")
-	cmd.Flags().StringVar(&workspace, "workspace", "", "Override workspace; must match the token's workspace (default: introspected from /users/me)")
-	cmd.Flags().StringVar(&environment, "environment", "", "Target environment (e.g. dev, staging, prod); required in non-interactive mode")
-	cmd.Flags().StringVar(&region, "region", config.DefaultRegion, "Workato region (us, eu, jp, au, sg, il, cn, trial (Developer Sandbox))")
-	cmd.Flags().StringVar(&token, "token", "", "Workato API token; required in non-interactive mode")
-	cmd.Flags().BoolVar(&force, "force", false, "Skip overwrite confirmation if profile already exists")
+	cmd.Flags().StringVarP(&name, "name", "n", "", "Profile name (default: <region>-<workspace-slug>-<environment>)")
+	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "Override workspace; must match the token's workspace (default: introspected from /users/me)")
+	cmd.Flags().StringVarP(&environment, "environment", "e", "", "Target environment (e.g. dev, staging, prod); required in non-interactive mode")
+	cmd.Flags().StringVarP(&region, "region", "r", config.DefaultRegion, "Workato region (us, eu, jp, au, sg, il, cn, trial (Developer Sandbox))")
+	cmd.Flags().StringVarP(&token, "token", "t", "", "Workato API token; required in non-interactive mode")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip overwrite confirmation if profile already exists")
 	cmd.Flags().BoolVar(&noInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
 	return cmd
 }

@@ -195,16 +195,49 @@ func fileStoreForCwd() (*auth.FileStore, error) {
 }
 
 // checkProfileMatch returns an error if the project config specifies a profile
-// that doesn't match the active profile name.
+// that doesn't match the active profile name. The suggestion is tailored to
+// the bound profile's store type — keychain profiles support `wk auth switch`,
+// file-store profiles must be invoked per-call via `--profile X --store-type
+// file` because ADR-006 Sub-decision 3 forbids setting them globally active.
+// Without this branching, the error text would suggest a command that auth
+// switch itself rejects for file-store profiles (issue #35).
 func checkProfileMatch(cfg *config.Config, profileName string) error {
-	if cfg.Profile != "" && cfg.Profile != profileName {
-		return fmt.Errorf(
-			"active profile %q does not match project profile %q\n"+
-				"Use --profile %s or run: wk auth switch %s",
-			profileName, cfg.Profile, cfg.Profile, cfg.Profile,
-		)
+	if cfg.Profile == "" || cfg.Profile == profileName {
+		return nil
 	}
-	return nil
+	hint := profileSwitchHint(cfg.Profile)
+	return fmt.Errorf(
+		"active profile %q does not match project profile %q\n%s",
+		profileName, cfg.Profile, hint,
+	)
+}
+
+// profileSwitchHint returns a one-line actionable hint telling the user how
+// to invoke the named project profile, branching on where it's configured:
+//
+//   - keychain profile (~/.wk/profiles.json): use --profile or wk auth switch
+//   - file-store profile (<project>/.wk/profiles.env): use --profile X
+//     --store-type file; file-store profiles cannot be set globally active
+//   - not configured anywhere: surface that fact instead of proposing a
+//     command that will fail at the next step
+//
+// The keychain-first order mirrors the credential-resolution order in
+// resolveImplicit (ADR-006 Sub-decision 6).
+func profileSwitchHint(name string) string {
+	if _, err := auth.NewProfileManager().GetProfile(name); err == nil {
+		return fmt.Sprintf("Use --profile %s or run: wk auth switch %s", name, name)
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if root, rerr := config.FindProjectRoot(cwd); rerr == nil {
+			fs := auth.NewFileStore(root)
+			if fs.Exists() {
+				if _, ferr := fs.GetProfile(name); ferr == nil {
+					return fmt.Sprintf("Use --profile %s --store-type file (file-store profiles cannot be set globally active)", name)
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("profile %q not found in keychain or profiles.env — check for typos or run 'wk auth login' / create .wk/profiles.env", name)
 }
 
 // refreshSnapshotIfStale rewrites wk.toml's snapshot fields (workspace,

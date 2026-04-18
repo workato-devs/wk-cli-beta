@@ -12,7 +12,15 @@ import (
 	"github.com/workato-devs/wk-cli-beta/internal/config"
 )
 
-func TestCheckProfileMatch_Mismatch(t *testing.T) {
+func TestCheckProfileMatch_Mismatch_KeychainProfile(t *testing.T) {
+	resetGlobalFlags(t)
+	setupIsolatedHome(t)
+	// Seed a keychain profile so the hint takes the keychain branch.
+	writeKeychainProfile(t, &auth.Profile{
+		Name: "prod", Region: auth.RegionUS, StoreType: auth.StoreKeychain,
+		BaseURL: "https://www.workato.com",
+	})
+
 	cfg := &config.Config{Profile: "prod"}
 	err := checkProfileMatch(cfg, "dev")
 	if err == nil {
@@ -23,7 +31,49 @@ func TestCheckProfileMatch_Mismatch(t *testing.T) {
 		t.Errorf("error should mention both profiles, got: %s", msg)
 	}
 	if !strings.Contains(msg, "wk auth switch prod") {
-		t.Errorf("error should suggest auth switch, got: %s", msg)
+		t.Errorf("keychain mismatch should suggest auth switch, got: %s", msg)
+	}
+}
+
+// File-store profiles cannot be set as the global active profile
+// (ADR-006 Sub-decision 3), so the mismatch hint must not propose
+// `wk auth switch` — it would be immediately rejected.
+func TestCheckProfileMatch_Mismatch_FileStoreProfile(t *testing.T) {
+	resetGlobalFlags(t)
+	cwd := setupIsolatedHome(t)
+	writeProjectFileStore(t, cwd, "ci", "tok-1")
+
+	cfg := &config.Config{Profile: "ci"}
+	err := checkProfileMatch(cfg, "dev")
+	if err == nil {
+		t.Fatal("expected error for profile mismatch")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "wk auth switch") {
+		t.Errorf("file-store hint must not suggest auth switch, got: %s", msg)
+	}
+	if !strings.Contains(msg, "--profile ci --store-type file") {
+		t.Errorf("file-store hint should propose --store-type file invocation, got: %s", msg)
+	}
+}
+
+// Neither keychain nor file-store knows the profile — surface that up-front
+// rather than suggest a command that will fail at the next step.
+func TestCheckProfileMatch_Mismatch_UnknownProfile(t *testing.T) {
+	resetGlobalFlags(t)
+	setupIsolatedHome(t)
+
+	cfg := &config.Config{Profile: "ghost"}
+	err := checkProfileMatch(cfg, "dev")
+	if err == nil {
+		t.Fatal("expected error for profile mismatch")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `not found in keychain or profiles.env`) {
+		t.Errorf("unknown profile should surface not-found hint, got: %s", msg)
+	}
+	if strings.Contains(msg, "wk auth switch") {
+		t.Errorf("unknown profile should not suggest auth switch, got: %s", msg)
 	}
 }
 
