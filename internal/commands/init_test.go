@@ -881,6 +881,78 @@ func TestInitProjectsDirDiscovery(t *testing.T) {
 	}
 }
 
+func TestInitWithRepeatedSyncFlag(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+	resetGlobalFlags(t)
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{
+		"init",
+		"--name", "multi-proj",
+		"--profile", "dev",
+		"--sync", "Recipes/Slack:./slack",
+		"--sync", "Recipes/GitHub",
+		"--json",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	cfg, err := config.Load(config.ProjectConfigPath(filepath.Join(dir, "multi-proj")))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(cfg.Sync) != 2 {
+		t.Fatalf("Sync len = %d, want 2 (%+v)", len(cfg.Sync), cfg.Sync)
+	}
+	if cfg.Sync[0].ServerPath != "Recipes/Slack" || cfg.Sync[0].LocalPath != "./slack" {
+		t.Errorf("entry 0 = %+v, want {Recipes/Slack, ./slack}", cfg.Sync[0])
+	}
+	if cfg.Sync[1].ServerPath != "Recipes/GitHub" || cfg.Sync[1].LocalPath != "./GitHub" {
+		t.Errorf("entry 1 = %+v, want {Recipes/GitHub, ./GitHub}", cfg.Sync[1])
+	}
+}
+
+// TestInitCombinesProjectAndSyncFlag verifies the ADR-007 flag surface lets
+// --project and --sync coexist in one invocation. Replaces the old
+// shorthand+sync combination test; the --server-path/--local-path shorthand
+// was removed in ADR-007 Decision 4.
+func TestInitCombinesProjectAndSyncFlag(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+	resetGlobalFlags(t)
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{
+		"init",
+		"--name", "mix-proj",
+		"--profile", "dev",
+		"--project", "primary",
+		"--sync", "Recipes/Secondary:./secondary",
+		"--json",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	cfg, _ := config.Load(config.ProjectConfigPath(filepath.Join(dir, "mix-proj")))
+	if len(cfg.Sync) != 2 {
+		t.Fatalf("Sync len = %d, want 2 (%+v)", len(cfg.Sync), cfg.Sync)
+	}
+}
+
 // TestInitRejectsConflictingServerPaths pins Decision 5 rule 2: declaring
 // the same server_path with different local_paths in a single invocation
 // is a hard error.

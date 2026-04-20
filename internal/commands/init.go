@@ -94,7 +94,6 @@ func newInitCmd() *cobra.Command {
 		flagName        string
 		syncFlags       SyncEntryFlags
 		flagVerify      bool
-		flagInitNoInput bool
 		flagOverwrite   bool
 	)
 
@@ -155,7 +154,7 @@ wk sync add/remove for incremental edits.`,
 			// one and block -p entirely on `wk init` since Cobra picks the
 			// local long-flag over the inherited persistent pair.
 			profile := flagProfile
-			interactive := isInteractiveStdin() && !flagInitNoInput && !flagJSON
+			interactive := isInteractiveStdin() && !flagNoInput && !flagJSON
 
 			// In non-interactive mode, validate required flags upfront so
 			// no prompt label ever reaches the terminal (mirrors auth login).
@@ -364,7 +363,6 @@ wk sync add/remove for incremental edits.`,
 	BindSyncEntryFlags(cmd, &syncFlags)
 	cmd.Flags().BoolVar(&flagVerify, "verify", false,
 		"Validate every declared server-path against Workato and cache the resolved folder_id in wk.toml (ADR-007 Decision 7)")
-	cmd.Flags().BoolVar(&flagInitNoInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
 	cmd.Flags().BoolVarP(&flagOverwrite, "overwrite", "o", false, "Overwrite an existing project config without prompting (non-interactive mode)")
 
 	return cmd

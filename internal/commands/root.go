@@ -53,6 +53,7 @@ var (
 	flagStoreType string
 	flagNoColor   bool
 	flagTimeout   int
+	flagNoInput   bool
 )
 
 // NewRootCmd builds the root cobra command with all global flags.
@@ -79,6 +80,10 @@ Every command supports --json for machine-readable output.`,
 	pf.StringVar(&flagStoreType, "store-type", "", "Override credential store backend (keychain|file)")
 	pf.BoolVar(&flagNoColor, "no-color", false, "Disable color output")
 	pf.IntVar(&flagTimeout, "timeout", config.DefaultTimeout, "API timeout in seconds")
+	// --no-input forces non-interactive mode for commands that would
+	// otherwise prompt (currently only `wk init`). Accepted everywhere for
+	// a consistent scripting contract; a no-op where nothing prompts.
+	pf.BoolVar(&flagNoInput, "no-input", false, "Force non-interactive mode (fail on missing required flags instead of prompting)")
 
 	return root
 }
@@ -161,7 +166,7 @@ func registerAllCommands(root *cobra.Command) {
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newWorkspaceCmd())
 	root.AddCommand(newConnectorsCmd())
-	root.AddCommand(newProjectCmd())
+	root.AddCommand(newSyncCmd())
 	registerPluginCommands(root)
 }
 

@@ -7,6 +7,59 @@ import (
 	"testing"
 )
 
+func TestParseSyncFlag(t *testing.T) {
+	tests := []struct {
+		in         string
+		wantServer string
+		wantLocal  string
+		wantErr    bool
+	}{
+		{"Recipes/Slack", "Recipes/Slack", "./Slack", false},
+		{"Recipes/Slack:./code/slack", "Recipes/Slack", "./code/slack", false},
+		{"Recipes/Slack:", "Recipes/Slack", "./Slack", false},
+		{"All projects/Recipes:./rx", "All projects/Recipes", "./rx", false},
+		{"  Recipes/Slack  ", "Recipes/Slack", "./Slack", false},
+		{":/missing-server", "", "", true},
+		{"", "", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			e, err := parseSyncFlag(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseSyncFlag(%q) err = nil, want err", tc.in)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseSyncFlag(%q) err = %v", tc.in, err)
+			}
+			if e.ServerPath != tc.wantServer || e.LocalPath != tc.wantLocal {
+				t.Errorf("parseSyncFlag(%q) = {%q, %q}, want {%q, %q}",
+					tc.in, e.ServerPath, e.LocalPath, tc.wantServer, tc.wantLocal)
+			}
+		})
+	}
+}
+
+func TestDefaultLocalPathForServerPath(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"Recipes/Slack", "./Slack"},
+		{"Recipes", "./Recipes"},
+		{"All projects/Recipes/Slack", "./Slack"},
+		{"All projects", "."},
+		{"/Recipes/Slack/", "./Slack"},
+		{"", "."},
+	}
+	for _, tc := range tests {
+		if got := defaultLocalPathForServerPath(tc.in); got != tc.want {
+			t.Errorf("defaultLocalPathForServerPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // chdirToTempRoot sets up a temp dir, cd's into it, and returns the dir plus
 // a deferred restore so helper tests can use relative paths without tripping
 // the absolute-path guard in ValidateLocalPath.
