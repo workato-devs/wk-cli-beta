@@ -112,7 +112,7 @@ persisting the entry. Requires the project's bound profile to be usable.`,
 				if verr != nil {
 					return fmt.Errorf("--verify requires auth: %w", verr)
 				}
-				if verr := verifyServerPath(cmd, client, serverPath); verr != nil {
+				if _, verr := verifyServerPath(cmd, client, serverPath); verr != nil {
 					return verr
 				}
 			}
