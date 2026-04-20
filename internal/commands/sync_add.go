@@ -111,6 +111,6 @@ within one invocation are flagged as errors.`,
 	}
 	BindSyncEntryFlags(cmd, &syncFlags)
 	cmd.Flags().BoolVar(&flagVerify, "verify", false,
-		"Validate every declared server-path against Workato and cache the resolved folder_id (ADR-007 Decision 7)")
+		"Validate every declared server-path against Workato and cache resolved IDs in wk.toml")
 	return cmd
 }

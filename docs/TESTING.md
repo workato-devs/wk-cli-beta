@@ -80,8 +80,8 @@ $WK plugins list
 TESTDIR="$(mktemp -d)"
 cd "$TESTDIR"
 
-$WK init --name my-test --workspace dev --server-path "All projects/Test" --local-path "./recipes"
-cat wk.toml
+$WK init --name my-test --profile dev --sync "All projects/Test:./recipes"
+cat my-test/.wk/wk.toml
 # Expected: valid wk.toml with sync entry
 
 $WK status
@@ -227,12 +227,12 @@ TESTDIR=$(mktemp -d)
 
 ```sh
 cd "$TESTDIR"
-wk init --name test-project --workspace dev --server-path "All projects/Test" --local-path "./recipes"
+wk init --name test-project --profile dev --sync "All projects/Test:./recipes"
 ```
 
-Expected: prints success message. A `wk.toml` file exists with:
+Expected: prints success message. A `test-project/.wk/wk.toml` file exists with:
 - `name = 'test-project'`
-- `workspace = 'dev'`
+- `profile = 'dev'`
 - A `[[sync]]` block with `server_path` and `local_path`
 
 **Init should fail if wk.toml already exists:**
@@ -497,7 +497,7 @@ SYNCDIR=$(mktemp -d)
 cd "$SYNCDIR"
 
 # Create a project pointing at a real folder
-wk init --name sync-test --workspace test-live --server-path "$TEST_SERVER_PATH" --local-path "./assets"
+wk init --name sync-test --profile test-live --sync "$TEST_SERVER_PATH:./assets"
 ```
 
 **Pull:**

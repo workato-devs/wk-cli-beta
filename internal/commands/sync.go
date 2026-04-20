@@ -107,7 +107,8 @@ func newPushCmd() *cobra.Command {
 		Long: `Upload modified local assets to the Workato workspace.
 
 When an entry's server_path does not yet exist on the workspace, push
-creates it (ADR-007 Decision 12). Gating:
+creates it on first call so 'wk init' + 'wk push' works end-to-end
+without a manual folder step. Gating:
 
   --no-create        Disable auto-create entirely. Missing folders error.
                      Recommended for CI / production deploys.
@@ -116,7 +117,8 @@ creates it (ADR-007 Decision 12). Gating:
 
 Both gates are mutually exclusive. By default, a bare server_path
 (no slashes) is auto-created on first push; a nested path that does
-not resolve errors unless --create-path is passed.`,
+not resolve errors unless --create-path is passed. Created folders are
+reported on stderr (or as folders_created in --json output).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if flagNoCreate && flagCreatePath {
 				return fmt.Errorf("--no-create and --create-path are mutually exclusive")
@@ -215,7 +217,7 @@ not resolve errors unless --create-path is passed.`,
 	cmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Show what would be pushed without uploading")
 	cmd.Flags().BoolVar(&flagPreserveState, "preserve-state", true, "Preserve recipe active state on import")
 	cmd.Flags().BoolVar(&flagSkipHooks, "skip-hooks", false, "Skip plugin pre-push hooks")
-	cmd.Flags().BoolVar(&flagNoCreate, "no-create", false, "Error instead of auto-creating missing server folders (ADR-007 Decision 13)")
+	cmd.Flags().BoolVar(&flagNoCreate, "no-create", false, "Error instead of auto-creating missing server folders")
 	cmd.Flags().BoolVar(&flagCreatePath, "create-path", false, "Create every missing segment of a nested server_path (not just bare names)")
 
 	return cmd

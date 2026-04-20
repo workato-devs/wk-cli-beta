@@ -366,7 +366,7 @@ wk sync add/remove for incremental edits.`,
 	// break -p on `wk init`.
 	BindSyncEntryFlags(cmd, &syncFlags)
 	cmd.Flags().BoolVar(&flagVerify, "verify", false,
-		"Validate every declared server-path against Workato and cache the resolved folder_id in wk.toml (ADR-007 Decision 7)")
+		"Validate every declared server-path against Workato and cache resolved IDs in wk.toml")
 	cmd.Flags().BoolVarP(&flagOverwrite, "overwrite", "o", false, "Overwrite an existing project config without prompting (non-interactive mode)")
 
 	return cmd

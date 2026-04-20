@@ -544,6 +544,32 @@ Under `--json`, creation events are included as a structured array in the push r
 
 ---
 
+## Post-Implementation Notes
+
+These record divergences from the original spec that came up during implementation. The Decision text above is preserved as the design intent; the notes below are the as-built reality.
+
+- **Decision 5 rule 1 — exact duplicates are errors, not silent dedup.** The original rule said identical `(server_path, local_path)` tuples within one invocation dedup to one entry. Implementation errors instead: a developer who typed `--project foo --project foo` almost certainly made a typo, and silent dedup hides it. The conflict-rule machinery now flags both duplicates and same-server-path-different-local-path with distinct error messages. Against existing `wk.toml` entries, exact matches still silently skip per Decision 8 rule 3.
+
+- **Decision 7 — `--overwrite` replaces rather than preserves.** Described in the Decision text, but worth calling out: the Issue #29 preservation workaround (keeping hand-edited `[[sync]]` entries through `--overwrite`) was obsoleted by the new flag surface. `--overwrite` now replaces the wk.toml in full. For incremental edits, use `wk sync add` / `wk sync remove`.
+
+- **Decision 11 — four states, not four-plus-API-validation.** The original spec used `GET /folders/{id}` to distinguish `current` (200) from `stale` (404) for already-cached entries. That endpoint does not exist in the Workato API. Implementation validates cached IDs by walking the hierarchy via `List` and comparing the resolved leaf ID against the cached value. The four states became:
+  - `found` — no cache, walk succeeded (first-time resolve)
+  - `current` — cache matches walk result
+  - `repaired` — cache present but walk returned a different id; auto-healed (a case the original `Get`-based design couldn't see)
+  - `not-found` — walk failed. Cached entries retain their pre-classify `folder_id` in the output so "used to work" vs "never worked" stays visible without a fifth state.
+
+- **Decisions 7, 12, 14 — project_id alongside folder_id.** The Workato folders list returns both `is_project` and a distinct `project_id` when the folder is a top-level project. `DELETE /projects/{project_id}` requires the project id (not the folder id), so `SyncEntry` gained a `ProjectID` field stored alongside `FolderID`. Every cache-fill path (`--verify`, `wk sync refresh`, push's create branch) captures both, and `wk folders delete` routes by `IsProject`, passing `project_id` when true.
+
+- **`--no-input` promoted to a root persistent flag.** Originally init-local, but the contract "commands that don't prompt should still accept `--no-input` as a no-op" is cleanest as a root persistent flag. Scripts can pass `--no-input` uniformly without learning which subcommands honor it.
+
+- **Folder-list memoization during `wk sync refresh`.** N entries sharing a workspace would refetch the same folder list N times. `SyncEngine.EnableFolderListCache()` opts into per-parent memoization for the duration of a sweep; pull/push/status keep the cache disabled so they always see fresh server state.
+
+- **Pre-existing retry-predicate fix.** `push.go`'s cache-invalidation retry originally gated on the pass-by-value `entry.FolderID`, which stayed zero when a folder was freshly resolved or created mid-push. Fixed alongside the create branch (Decision 12): the retry now checks the returned `folderID` instead.
+
+- **`wk project` namespace deleted.** With the sync subtree moved out, nothing remained under `wk project`. The empty parent namespace was removed rather than kept as a placeholder; a future `wk project rm` / `wk project rename` can reintroduce it when there's a concrete command to register.
+
+---
+
 ## Action Items
 
 1. [ ] Extract shared flag-binding and entry-assembly helpers from `wk init` into `internal/commands/sync_flags.go` (or similar) so `wk sync add` can reuse them without duplication
