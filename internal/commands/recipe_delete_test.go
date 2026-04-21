@@ -9,7 +9,7 @@ import (
 	"github.com/workato-devs/wk-cli-beta/internal/sync"
 )
 
-// seedRecipeLocals writes a .recipe.json + .wk-meta.json pair for the given
+// seedRecipeLocals writes a .recipe.json + .meta.json sidecar pair for the given
 // recipe name under localDir inside cwd. Uses a name-keyed filename (the
 // shape pull actually writes) and sets meta.RecipeName so the match path
 // exercises the production code path end-to-end.

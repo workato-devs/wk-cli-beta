@@ -181,7 +181,7 @@ func TestExtractZip_PopulatesRecipeNameFromJSONBody(t *testing.T) {
 //  4. Test passes again
 //
 // This prevents silent regressions where new asset types get
-// type:"unknown" in .wk-meta.json.
+// type:"unknown" in the .meta.json sidecar.
 func TestInferAssetType_KnownWorkatoExtensions(t *testing.T) {
 	knownExtensions := []struct {
 		extension    string // compound file extension used by Workato exports

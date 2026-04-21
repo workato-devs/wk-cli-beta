@@ -22,7 +22,7 @@ When working with Workato API resources (recipes, connections, API endpoints, et
 
 ### Adding a new Workato export file extension
 
-When `wk pull` encounters a file type it doesn't recognize, it writes `type: "unknown"` to `.wk-meta.json`, which breaks lint and type-aware features.
+When `wk pull` encounters a file type it doesn't recognize, it writes `type: "unknown"` to the `.meta.json` sidecar in `.wk/`, which breaks lint and type-aware features.
 
 1. Add the extension to `knownExtensions` in `TestInferAssetType_KnownWorkatoExtensions` (`internal/sync/pull_test.go`).
 2. Add a matching case to `inferAssetType()` in `internal/sync/pull.go`.

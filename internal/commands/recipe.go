@@ -504,7 +504,7 @@ updates to running recipes. Use "wk recipes stop <id>" first if needed.`,
 
 // newRecipesDeleteCmd removes a recipe from the Workato workspace (and,
 // when running inside a wk project, cleans up the corresponding local
-// .recipe.json + .wk-meta.json pair by matching the recipe's name).
+// .recipe.json + .meta.json sidecar pair by matching the recipe's name).
 //
 // The pull-side zip doesn't carry server-side IDs — only the recipe's
 // name — so local-cleanup happens by name. When the user passes an ID,
@@ -526,7 +526,7 @@ func newRecipesDeleteCmd() *cobra.Command {
 		Use:   "delete [id]",
 		Short: "Delete a recipe (server and/or local)",
 		Long: `Delete a recipe from the Workato workspace. When invoked inside a wk
-project, also removes the matching local .recipe.json and .wk-meta.json
+project, also removes the matching local .recipe.json and .meta.json
 files — matched by the recipe's name, since pull zips don't carry
 server-side IDs.
 
@@ -653,7 +653,7 @@ func resolveRecipeIDByName(cmd *cobra.Command, client api.Client, name string) (
 }
 
 // cleanupLocalRecipeFiles best-effort removes the .recipe.json and its
-// .wk-meta.json sidecar for the given recipe name. Matches by the
+// .meta.json sidecar for the given recipe name. Matches by the
 // recipe_name field inside each meta — names are the stable, portable
 // identifier across environments, whereas server-side IDs are
 // per-environment and ephemeral (an ID that identifies a recipe in dev

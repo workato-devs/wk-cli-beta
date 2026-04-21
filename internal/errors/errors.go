@@ -21,7 +21,7 @@ var (
 	// Sync errors
 	ErrSyncConflict   = errors.New("sync conflict: local and remote changes detected")
 	ErrNoSyncEntries  = errors.New("no [[sync]] entries configured in wk.toml")
-	ErrMetaCorrupted  = errors.New("sidecar .wk-meta.json is corrupted or missing")
+	ErrMetaCorrupted  = errors.New("sidecar .meta.json is corrupted or missing")
 
 	// Plugin errors
 	ErrPluginNotFound = errors.New("plugin not found")

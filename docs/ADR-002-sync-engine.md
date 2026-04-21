@@ -18,7 +18,7 @@ The PRD proposed a sync engine with pull, push, status, and diff commands. Durin
 
 ## Decision
 
-Build a sync engine around RLCM export/import operations with `.wk-meta.json` sidecar files tracking server-side identity, SHA256 content hashing for local change detection, and folder resolution by walking the Workato hierarchy. Status computation is local-only (no API calls). Remote diff requires an export round-trip.
+Build a sync engine around RLCM export/import operations with `.meta.json` sidecar files tracking server-side identity, SHA256 content hashing for local change detection, and folder resolution by walking the Workato hierarchy. Status computation is local-only (no API calls). Remote diff requires an export round-trip.
 
 ---
 
@@ -35,7 +35,7 @@ wk pull
   → Poll until export completes (GET /packages/export/{id}, 2s interval)
   → Download zip archive
   → Extract files to local_path
-  → Write .wk-meta.json sidecar for each extracted file
+  → Write .meta.json sidecar for each extracted file
 ```
 
 ### Sync Flow: Push
@@ -48,14 +48,14 @@ wk push
   → Trigger RLCM import (POST /packages/import/{folder_id}?restart_recipes={bool})
   → Poll until import completes (GET /packages/import/{id}, 2s interval)
   → Run plugin pre-push hooks (if not --skip-hooks)
-  → Update .wk-meta.json with new content hashes
+  → Update .meta.json with new content hashes
 ```
 
 ### Sync Flow: Status (Local-Only)
 
 ```
 wk status
-  → Find all .wk-meta.json files under local_path
+  → Find all .meta.json files under local_path
   → For each tracked file: hash current content, compare to stored content_hash
   → Report: unchanged | modified | new | deleted
   → No API calls
@@ -85,9 +85,9 @@ wk diff
 
 **Implementation:** `internal/api/packages.go` wraps the full RLCM lifecycle — `Export()`, `ExportStatus()`, `Download()`, `Import()`, and `ImportStatus()` for polling.
 
-### Decision 2: `.wk-meta.json` Sidecar Files for Path Identity
+### Decision 2: `.meta.json` Sidecar Files for Path Identity
 
-**Decision:** Each synced file gets a `.wk-meta.json` sidecar file stored alongside it. The sidecar tracks the file's server-side identity and sync state.
+**Decision:** Each synced file gets a `.meta.json` sidecar file stored alongside it. The sidecar tracks the file's server-side identity and sync state.
 
 **Schema:**
 
@@ -106,13 +106,13 @@ wk diff
 
 The `server_path` field tracks where the file lives in the Workato folder hierarchy. This is critical because local file paths can be reorganized by the developer without affecting the server-side identity. The `content_hash` enables local-only status checks without calling the API. (The PRD proposed a `version` field for merge-base resolution; this was deferred from the initial implementation but can be added when bidirectional merge is needed.)
 
-**Alternative considered:** Store all metadata in a single `.wk-meta.json` at the project root. Rejected because per-file sidecars survive file moves, renames, and partial syncs without requiring a global index rebuild.
+**Alternative considered:** Store all metadata in a single `.meta.json` at the project root. Rejected because per-file sidecars survive file moves, renames, and partial syncs without requiring a global index rebuild.
 
 **Implementation:** `internal/sync/meta.go` — `AssetMeta` struct with `ServerPath`, `ZipName`, `Folder`, `Type`, `ContentHash`, `LastPulledAt` fields. `ReadMeta`/`WriteMeta` for individual files, `FindMetaFiles` for directory scanning.
 
 ### Decision 3: SHA256 Content Hashing for Change Detection
 
-**Decision:** Use SHA256 hashes of file content to detect local modifications. Store the hash in `.wk-meta.json` at pull time. Compare at status/push time.
+**Decision:** Use SHA256 hashes of file content to detect local modifications. Store the hash in `.meta.json` at pull time. Compare at status/push time.
 
 **Why:** Timestamp-based change detection (mtime) is unreliable across filesystems, Git operations (checkout resets mtime), and CI environments. Content hashing is deterministic: if the hash matches, the file hasn't changed, regardless of what the filesystem reports about modification time.
 
@@ -132,7 +132,7 @@ SHA256 was chosen over faster alternatives (xxHash, CRC32) because it's availabl
 
 ### Decision 5: Local-Only Status Computation
 
-**Decision:** `wk status` computes file status entirely from local data — `.wk-meta.json` hashes versus current file hashes. It makes zero API calls.
+**Decision:** `wk status` computes file status entirely from local data — `.meta.json` hashes versus current file hashes. It makes zero API calls.
 
 **Why:** Status is the most frequently run sync command. Developers run it reflexively before pull/push, often in rapid succession. Making an API call on every status check would be slow, rate-limited, and unnecessary. The common case is "has anything changed locally since my last pull?" — which is answerable purely from local hashes.
 
@@ -194,7 +194,7 @@ The fail-open decision is deliberate and documented. Fail-closed would make the 
 | `wk diff` | **Implemented** | Remote export + hash comparison |
 | `wk clone` | **Implemented** | Scaffolding + force-pull |
 | `[[sync]]` config entries | **Implemented** | `server_path` + `local_path` mapping in `wk.toml` |
-| `.wk-meta.json` sidecars | **Implemented** | Per-file server identity and hash tracking |
+| `.meta.json` sidecars | **Implemented** | Per-file server identity and hash tracking |
 | Plugin pre-push hooks | **Implemented** | Fail-open JSON-RPC hooks |
 
 ## What Diverged from the PRD
@@ -227,7 +227,7 @@ The fail-open decision is deliberate and documented. Fail-closed would make the 
 
 - **Folder ID caching**: If developers report slow pulls on deep folder hierarchies, add a local cache mapping `server_path` → `folder_id` with a TTL or invalidation on pull.
 - **Partial push**: If Workato adds single-recipe import endpoints, the sync engine can be extended to push individual files instead of full packages.
-- **Bidirectional merge**: The current model is "last writer wins" with conflict detection. If collaborative workflows require three-way merge, the `.wk-meta.json` schema's `last_pulled_at` field and a future `version` field could support merge base resolution.
+- **Bidirectional merge**: The current model is "last writer wins" with conflict detection. If collaborative workflows require three-way merge, the `.meta.json` schema's `last_pulled_at` field and a future `version` field could support merge base resolution.
 
 ---
 
@@ -239,7 +239,7 @@ The sync engine defines specific error types for programmatic handling:
 |-------|---------|----------|
 | `ErrSyncConflict` | Local modifications detected before pull | Pull aborts unless `--force` |
 | `ErrNoSyncEntries` | No `[[sync]]` entries in `wk.toml` | All sync commands abort with guidance |
-| `ErrMetaCorrupted` | `.wk-meta.json` cannot be parsed | Status/push skip the file with warning |
+| `ErrMetaCorrupted` | `.meta.json` cannot be parsed | Status/push skip the file with warning |
 | `ErrProfileMismatch` | Active profile doesn't match the workspace that created the meta | Push aborts to prevent cross-workspace sync |
 
 **Implementation:** `internal/errors/errors.go`

@@ -172,7 +172,7 @@ The `wk.toml` manifest pins a project to a specific profile via the `profile` fi
 
 See **ADR-006** for the full decision record on the profile identity model, including the addition of `workspace` and `environment` fields.
 
-Local metadata (`.wk-meta.json` sidecar files) tracks each asset's server-side `absolute_path`, `zip_name`, and `folder` values. This ensures `wk push` can reconstruct the correct zip structure for import — the path problem documented in Appendix A of the PRD.
+Local metadata (`.meta.json` sidecar files) tracks each asset's server-side `absolute_path`, `zip_name`, and `folder` values. This ensures `wk push` can reconstruct the correct zip structure for import — the path problem documented in Appendix A of the PRD.
 
 ---
 
@@ -440,7 +440,7 @@ Monorepo to start. Split later if the plugin ecosystem grows beyond the core tea
 
 The following topics are architecturally significant but warrant their own ADRs:
 
-- **ADR-002: Sync Engine** — Pull/push/diff mechanics, `.wk-meta.json` sidecar design, server-side path identity tracking (`absolute_path` / `zip_name` / `folder`), cross-project reference detection, multi-sync conflict resolution. This is where the path problem (PRD Appendix A) gets its full architectural treatment.
+- **ADR-002: Sync Engine** — Pull/push/diff mechanics, `.meta.json` sidecar design, server-side path identity tracking (`absolute_path` / `zip_name` / `folder`), cross-project reference detection, multi-sync conflict resolution. This is where the path problem (PRD Appendix A) gets its full architectural treatment.
 - **ADR-003: MCP Delegation Strategy** — When the CLI calls the Workato API directly vs. delegates to an org's Dev API MCP server. Decision model, `auto_delegate` behavior, fallback semantics, and the `prefer_mcp_for` / `never_delegate` configuration. Design early (Phase 1), implement in Phase 4.
 - **ADR-004: Plugin Security Model** — Capability-based sandboxing for third-party plugins. Not needed for POC (plugins are trusted, core-team authored), but required before opening the plugin ecosystem to the community.
 - **ADR-006: Profile Identity Model** — Addition of `workspace` and `environment` as required metadata fields on the auth profile, renaming of the `wk.toml` field from `workspace` to `profile`, and terminology alignment across the CLI.

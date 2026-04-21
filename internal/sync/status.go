@@ -14,8 +14,8 @@ type FileStatus string
 const (
 	StatusUnchanged FileStatus = "unchanged"
 	StatusModified  FileStatus = "modified"
-	StatusNew       FileStatus = "new"     // local file with no .wk-meta.json
-	StatusDeleted   FileStatus = "deleted" // .wk-meta.json exists but file is gone
+	StatusNew       FileStatus = "new"     // local file with no .meta.json sidecar in .wk/
+	StatusDeleted   FileStatus = "deleted" // .meta.json exists in .wk/ but asset file is gone
 )
 
 // AssetStatus represents the sync status of a single asset file.
