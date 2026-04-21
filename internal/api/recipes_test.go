@@ -105,6 +105,41 @@ func TestRecipeService_Delete(t *testing.T) {
 	}
 }
 
+func TestRecipeService_Import_FollowUpGet(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/recipes":
+			json.NewDecoder(r.Body).Decode(&captured)
+			w.Write([]byte(`{"success":true,"id":206448}`))
+		case r.Method == "GET" && r.URL.Path == "/recipes/206448":
+			json.NewEncoder(w).Encode(Recipe{ID: 206448, Name: "imported", FolderID: 14116})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	body := []byte(`{"name":"imported","code":{"x":1},"config":[{"k":"v"}]}`)
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	recipe, err := client.Recipes().Import(context.Background(), 14116, body)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if recipe.ID != 206448 || recipe.Name != "imported" || recipe.FolderID != 14116 {
+		t.Errorf("recipe = %+v, want ID=206448 Name=imported FolderID=14116", recipe)
+	}
+	if fid, ok := captured["folder_id"].(string); !ok || fid != "14116" {
+		t.Errorf("folder_id = %v (%T), want string 14116", captured["folder_id"], captured["folder_id"])
+	}
+	if s, ok := captured["code"].(string); !ok || s != `{"x":1}` {
+		t.Errorf("code not stringified; got %T %v", captured["code"], captured["code"])
+	}
+}
+
 func TestRecipeService_Update_StringifiesCodeAndConfig(t *testing.T) {
 	var captured map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

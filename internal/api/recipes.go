@@ -68,11 +68,14 @@ func (s *recipeService) Import(ctx context.Context, folderID int, data []byte) (
 	}
 	body["folder_id"] = strconv.Itoa(folderID)
 
-	var recipe Recipe
-	if err := s.client.do(ctx, "POST", "/recipes", body, &recipe); err != nil {
+	var result struct {
+		Success bool `json:"success"`
+		ID      int  `json:"id"`
+	}
+	if err := s.client.do(ctx, "POST", "/recipes", body, &result); err != nil {
 		return nil, err
 	}
-	return &recipe, nil
+	return s.Get(ctx, result.ID)
 }
 
 // Update replaces an existing recipe's code/config via PUT /recipes/{id}.
