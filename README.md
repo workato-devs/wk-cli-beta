@@ -1,95 +1,210 @@
 # wk
 
-**Workato CLI** -- manage your Workato workspace from the terminal.
+## What is this?
 
-`wk` is a command-line tool for working with Workato recipes, connections, and
-sync operations. It supports multiple workspace profiles, bidirectional sync
-between local files and remote workspaces, and a plugin system for extending
-functionality. Every command supports `--json` for scripting and CI/CD use.
+`wk` is the CLI component of Workato's agent-assisted recipe development
+toolkit. An AI agent uses **recipe-skills** to generate Workato recipes, a
+developer inspects the result in the **Recipe Visualizer**, the **linter**
+catches structural errors programmatically, and `wk push` deploys validated
+recipes to a workspace.
 
-## Install
+| Repo | What it does |
+|------|-------------|
+| [**wk-cli-beta**](https://github.com/workato-devs/wk-cli-beta) | CLI for workspace operations: auth, sync, CRUD for recipes/connections/folders/tags/API Platform |
+| [**wk-lint-beta**](https://github.com/workato-devs/wk-lint-beta) | Recipe linter plugin: 4-tier structural, connector-aware, and schema-level validation |
+| [**recipe-skills**](https://github.com/workato-devs/recipe-skills) | Connector knowledge for AI agents: per-connector templates, patterns, and lint rules |
+| [**visualizer-ext-beta**](https://github.com/workato-devs/visualizer-ext-beta) | VS Code extension: renders recipe JSON as interactive workflow graphs for human review |
 
-### Build from source
-
-Requires Go 1.23+.
-
-```sh
-git clone https://github.com/workato-devs/wk-cli-beta.git
-cd wk-cli-beta
-make build
+```mermaid
+flowchart LR
+    A["recipe-skills\n(connector knowledge)"] --> B["AI Agent\ngenerates recipe"]
+    B --> C["Recipe Visualizer\n(human review)"]
+    C -->|"edit"| B
+    C -->|"looks good"| D["wk lint\n(programmatic validation)"]
+    D -->|"errors"| B
+    D -->|"pass"| E["wk push\n(deploy to workspace)"]
+    E --> F["Workato"]
 ```
 
-The binary is written to `./bin/wk`. Optionally install it to your `$GOPATH/bin`:
+## Why this CLI?
+
+The four tools together enable a development loop that doesn't exist in the
+current Python CLI (`workato-cli`): an agent generates a recipe using skills
+as context, a developer validates the structure visually, the linter enforces
+rules the agent can't self-check, and the CLI pushes the result to Workato.
+The write-visualize-lint-push cycle is the primary workflow these tools exist
+to support.
+
+If you're migrating from the Python CLI, `wk` covers the same workspace
+operations (recipes, connections, sync) as native Go binaries with no runtime
+dependency, plus the agent-workflow capabilities above.
+
+## Setting up the toolkit
+
+### 1. Install the CLI
+
+Requires [Go 1.23+](https://go.dev/dl/).
 
 ```sh
-make install
+go install github.com/workato-devs/wk-cli-beta/cmd/wk@latest
 ```
 
-### Homebrew (when available)
+### 2. Install the Recipe Visualizer
+
+Download the latest `.vsix` from
+[visualizer-ext-beta/releases](https://github.com/workato-devs/visualizer-ext-beta/releases):
 
 ```sh
-brew install workato-devs/tap/wk
+code --install-extension recipe-visualizer-*.vsix
 ```
+
+Works with VS Code, Cursor, and Windsurf.
+
+### 3. Install the linter plugin
+
+```sh
+go install github.com/workato-devs/wk-lint-beta/cmd/recipe-lint@latest
+wk plugins install recipe-lint
+```
+
+### 4. Clone the skills repo
+
+```sh
+git clone https://github.com/workato-devs/recipe-skills.git
+```
+
+Skills provide connector-specific knowledge to AI agents. Point your agent
+(Claude Code, Cursor, Windsurf) at the skills repo for context when generating
+recipes.
 
 ## Getting started
 
-### 1. Authenticate
+### Authenticate
+
+Before you can use the CLI, you need a Workato API token. Creating one
+requires several steps in the Workato UI:
+
+1. **Create a Client Role** — go to **Workspace admin > API clients > Client
+   roles** and create a role with the permissions you need (projects,
+   connections, recipes, lifecycle management, etc.)
+2. **Create an API Client** — go to **Workspace admin > API clients**, create
+   a client, assign the role, and specify environment/project access
+3. **Copy the token** — the token (starts with `wrk`) is shown once at
+   creation time
+
+See the [Workato docs on API clients](https://docs.workato.com/en/platform-cli.html#authentication)
+for the full walkthrough.
+
+Once you have a token, create an auth profile:
 
 ```sh
-wk auth login
+wk auth login --token <your-token> --environment prod
 ```
 
-This creates a named workspace profile. You can add multiple profiles and switch
-between them:
+`--token` and `--environment` are required — they can't be introspected.
+Everything else (workspace name, workspace ID, email) is pulled from
+`GET /users/me` after the token is validated. The profile name is
+auto-computed as `<region>-<workspace-slug>-<environment>`.
+
+The region defaults to `us`. Pass `--region` to override:
 
 ```sh
-wk auth login              # interactive setup
+wk auth login --token <your-token> --environment prod --region eu
+```
+
+Valid regions: `us`, `eu`, `jp`, `au`, `sg`, `il`, `cn`, `trial` (Developer Sandbox).
+
+```sh
 wk auth list               # show all profiles
 wk auth switch <profile>   # change active profile
 wk auth status             # verify connectivity
 ```
 
-Supported regions: `us`, `eu`, `jp`, `au`, `sg`, `il`, `cn`, `trial` (Developer Sandbox).
+Credentials are stored in the system keychain by default. For CI/CD, use
+`--store-type file` to write a `profiles.env` credential file instead. See
+[docs/ci-setup.md](./docs/ci-setup.md) for non-interactive flag requirements
+and example pipelines.
 
-Credentials can be stored in the system keychain, an environment variable, a
-file, or HashiCorp Vault (see `--store` flag on `wk auth login`).
+### New project (greenfield)
 
-Running `wk` in CI/CD? See [docs/ci-setup.md](./docs/ci-setup.md) for
-non-interactive flag requirements and example pipelines.
-
-### 2. Initialize a project
+`wk init` creates a project container with a `.wk/` directory for CLI state
+and scaffolds local directories for each declared Workato project:
 
 ```sh
-mkdir my-workspace && cd my-workspace
-wk init
+wk init --project "Marketing Recipes" --project "Sales Recipes"
 ```
 
-This creates a `wk.toml` file in the current directory. To link an existing
-directory to a workspace instead:
+The project name is derived from your active auth profile as
+`<region>-<workspace-slug>-<environment>` — the same naming convention
+used for the profile itself. This keeps your project directory, auth
+profile, and workspace aligned automatically. Override with `--name` if
+needed.
 
-```sh
-wk link
+After init, the directory looks like this:
+
+```
+us-acme-corp-prod/
+├── .wk/                          # CLI state (gitignored)
+│   ├── wk.toml                   # project config
+│   └── .gitignore
+├── Marketing Recipes/            # local directory for this Workato project
+└── Sales Recipes/                # local directory for this Workato project
 ```
 
-### 3. Work with recipes
+Pull to sync server content down to your local directories:
 
 ```sh
-wk recipes list
-wk recipes get <id>
-wk recipes start <id>
-wk recipes stop <id>
-wk recipes export <id> -o recipe.json
-wk recipes import recipe.json
+cd us-acme-corp-prod
+wk pull
 ```
 
-### 4. Sync
+After pull, `.wk/` mirrors the asset tree with `.meta.json` sidecar files
+that track each asset's server-side identity and content hash. These power
+`wk status` and `wk diff`:
+
+```
+us-acme-corp-prod/
+├── .wk/
+│   ├── wk.toml
+│   ├── .gitignore
+│   ├── Marketing Recipes/
+│   │   └── welcome-email.recipe.json.meta.json
+│   └── Sales Recipes/
+│       └── lead-sync.recipe.json.meta.json
+├── Marketing Recipes/
+│   └── welcome-email.recipe.json
+└── Sales Recipes/
+    └── lead-sync.recipe.json
+```
 
 ```sh
-wk pull          # pull remote assets to local project
+wk status        # show what's changed locally vs. last pull
+wk diff          # show content differences between local and remote
 wk push          # push local changes to remote workspace
-wk status        # show sync status
-wk diff          # show differences between local and remote
 ```
+
+### Existing project (rehydration)
+
+To adopt a workspace whose Workato projects already exist on the server,
+use `--projects-dir` to discover projects from an existing directory and
+`--verify` to validate each one against the workspace:
+
+```sh
+wk init --projects-dir us-acme-corp-prod --verify
+```
+
+`--projects-dir` walks one level deep and picks up each subdirectory as a
+Workato project. `--verify` confirms each one exists on the server and
+caches the resolved folder IDs in `wk.toml`.
+
+Then pull to hydrate your local directories with the server's current state:
+
+```sh
+cd us-acme-corp-prod
+wk pull
+```
+
+From here the workflow is the same — edit, status, diff, push.
 
 ## Command reference
 
@@ -100,8 +215,10 @@ wk
     list            List all auth profiles
     switch          Switch active profile
     status          Show active profile and test connectivity
+    delete          Delete an auth profile and its stored credential
   init              Initialize a new wk project
-  link              Link directory to a Workato workspace
+  link              Link the current project to an auth profile
+  clone             Clone a remote folder into a new local project
   recipes (recipe)
     list            List recipes
     get             Get recipe details
@@ -109,107 +226,174 @@ wk
     stop            Stop a recipe
     export          Export a recipe as JSON
     import          Import a recipe from JSON file
+    update          Update an existing recipe from a JSON file
+    delete          Delete a recipe
+    jobs            List recipe jobs
+    copy            Copy a recipe to a folder
+    update-connection  Update a recipe's connection
+    validate        Validate recipe files (delegates to recipe-lint plugin)
+    versions        List recipe version history
+      comment       Set or update a version comment
   connections (conn)
     list            List connections
     get             Get connection details
-    test            Test a connection
+    create          Create a connection
+    update          Update a connection
+    delete          Delete a connection
+    disconnect      Disconnect a connection
+  connectors (connector)
+    list            List connectors (--search to filter)
+  folders (folder)
+    list            List folders
+    create          Create a folder
+    delete          Delete a folder or project
+  tags (tag)
+    list            List tags
+    create          Create a tag
+    update          Update a tag
+    delete          Delete a tag
+    apply           Apply a tag to recipes or connections
+    remove          Remove a tag from recipes or connections
+  api
+    collections (collection)
+      list          List API collections
+      create        Create an API collection
+    endpoints (endpoint)
+      list          List API endpoints
+      enable        Enable an API endpoint
+      disable       Disable an API endpoint
+  mcp
+    test            Test MCP server connectivity
+    tools           List tools exposed by an MCP server
+  workspace
+    info            Show current workspace info
+    users           List workspace members
+    audit-log       View workspace audit log
+  sync
+    add             Add sync entries to wk.toml
+    list            Show all sync entries
+    refresh         Reconcile cached folder IDs against workspace
+    remove          Remove a sync entry from wk.toml
   pull              Pull remote assets to local project
   push              Push local changes to remote workspace
   status            Show sync status
   diff              Show local vs. remote differences
   plugins (plugin)
-    install         Install a plugin from a local path
+    install         Install a plugin from a local directory
     list            List installed plugins
     remove          Remove an installed plugin
   version           Print version info
-  completion        Generate shell completions
+  completion        Generate shell completions (bash, zsh, fish, powershell)
 ```
+
+The `lint` command is contributed by the recipe-lint plugin when installed
+(`wk lint` is equivalent to `wk recipes validate`).
 
 ### Global flags
 
 | Flag | Description |
 |---|---|
-| `--json` | Output as JSON |
+| `--json`, `-j` | Output as JSON |
 | `--verbose` | Enable debug logging |
-| `--quiet` | Suppress non-essential output |
-| `--profile <name>` | Override active workspace profile |
+| `--quiet`, `-q` | Suppress non-essential output |
+| `--profile`, `-p` | Override active workspace profile |
+| `--store-type <backend>` | Override credential store backend (`keychain`\|`file`) |
 | `--no-color` | Disable color output |
+| `--no-input` | Force non-interactive mode |
 | `--timeout <secs>` | API timeout in seconds (default 30) |
 
 ## Project config
 
-Every `wk` project is defined by a `wk.toml` file at the project root. The CLI
-walks up from the current directory to find it.
+An auth profile maps to an environment/workspace/region tuple. A project's
+`wk.toml` declares which workspace it targets and what to sync.
+
+```mermaid
+flowchart TD
+    R["Region: us"] --> W["Workspace: acme-corp"]
+    W --> E["Environment: prod"]
+
+    subgraph "Auth Profile"
+        P["Profile: us-acme-corp-prod\n(token scoped to this tuple)"]
+    end
+
+    P -.-> E
+
+    subgraph "Project (.wk/wk.toml)"
+        T["wk.toml"]
+        T --> S1["[[sync]] Marketing Recipes → ./marketing"]
+        T --> S2["[[sync]] Sales Recipes → ./sales"]
+    end
+
+    P -.->|"--profile or active"| T
+    S1 -->|"push / pull"| E
+    S2 -->|"push / pull"| E
+```
+
+Every `wk` project is defined by a `.wk/wk.toml` file. The CLI walks up from
+the current directory to find it.
 
 ```toml
-name = "my-project"
+name = "us-acme-corp-prod"
 description = "Production workspace recipes"
-workspace = "acme-prod"
-plugins = ["example"]
-
-[mcp]
-auto_delegate = true
-server_url = "https://mcp.example.com"
+workspace = "acme-corp"
+plugins = ["recipe-lint"]
 
 [[sync]]
-server_path = "/recipes/production"
-local_path = "./recipes"
-include = ["*.json"]
+server_path = "/Marketing Recipes"
+local_path = "./Marketing Recipes"
+folder_id = 12345
+project_id = 678
 
 [[sync]]
-server_path = "/connections"
-local_path = "./connections"
+server_path = "/Sales Recipes"
+local_path = "./Sales Recipes"
+folder_id = 12346
+project_id = 679
 ```
 
 | Field | Purpose |
 |---|---|
-| `name` | Project name |
+| `name` | Project name (also the container directory name) |
 | `description` | Optional description |
 | `workspace` | Workspace identifier (matches auth profile) |
 | `plugins` | List of plugins to load |
-| `mcp` | MCP integration settings |
 | `sync` | Array of server-path-to-local-path mappings |
-
-Each `[[sync]]` entry maps a remote path to a local directory, with an optional
-`include` glob filter.
+| `sync.server_path` | Workato folder path on the server |
+| `sync.local_path` | Local directory to sync into |
+| `sync.folder_id` | Cached Workato folder ID — populated by `--verify` or on first sync, avoids repeated folder-hierarchy API walks. Use `wk sync refresh` to re-resolve. |
+| `sync.project_id` | Cached Workato project ID — present only when the folder is a Workato project. Required for project-level operations (`folders delete` on projects). Zero/absent for plain folders. |
+| `sync.include` | Optional glob filter for which files to sync |
 
 ## Plugin system
 
 Plugins extend `wk` with additional commands via JSON-RPC. A plugin is a
-directory containing a `plugin.toml` manifest and an executable entrypoint.
-
-### Installing a plugin
+directory containing a `plugin.toml` manifest and a Go binary entrypoint.
+The linter (`recipe-lint`) is the primary plugin.
 
 ```sh
-wk plugins install ./plugins/example
-wk plugins list
+wk plugins install ./recipe-lint     # install from a local directory
+wk plugins list                      # list installed plugins
+wk plugins remove <name>             # remove a plugin
 ```
 
 ### Plugin manifest format
 
 ```toml
-name = "example"
+name = "recipe-lint"
 version = "0.1.0"
-description = "Example wk plugin demonstrating the JSON-RPC protocol"
-entrypoint = "./example"
+description = "Tiered recipe validation for Workato"
+entrypoint = "./recipe-lint"
 
 [[commands]]
-name = "hello"
-description = "Say hello from the example plugin"
-method = "example.hello"
+name = "lint"
+description = "Validate recipe files"
+method = "lint.run"
 ```
 
-The `entrypoint` is the binary that `wk` spawns. Each `[[commands]]` entry
-registers a subcommand under `wk <plugin-name> <command>`, routed to the
-specified JSON-RPC `method`.
+## Development (CLI internals only)
 
-To remove a plugin:
-
-```sh
-wk plugins remove example
-```
-
-## Development
+This section is for contributors working on the `wk` CLI itself. If you're
+using `wk` to build and deploy Workato recipes, you can stop reading here.
 
 ### Make targets
 

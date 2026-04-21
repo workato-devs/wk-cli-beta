@@ -27,7 +27,7 @@ All items verified with 33-case E2E plan against live `app.trial.workato.com`.
 - **Recipes:** list, get, start, stop, export, import
 - **Connections:** list, get
 - **Auth:** Tier 2 (keychain) + Tier 3 (env vars); login, list, switch, status
-- **Sync engine:** .wk-meta.json sidecars, multi-sync, SHA256 diff, preserve-state
+- **Sync engine:** .meta.json sidecars (under .wk/), multi-sync, SHA256 diff, preserve-state
 - **Plugin system:** manifest parsing, install/list/remove, JSON-RPC dispatch, example plugin
 - **Config:** wk.toml load/save, FindProjectRoot, [[sync]] entries, [mcp] struct
 - **Output:** --json on all commands, text table formatting, --verbose, --quiet, --profile, --timeout

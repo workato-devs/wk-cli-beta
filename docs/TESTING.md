@@ -111,7 +111,7 @@ TOML
 echo '{"name": "my recipe"}' > recipes/my_recipe.recipe.json
 
 $WK status
-# Expected: my_recipe.recipe.json shows as "new" (no .wk-meta.json sidecar)
+# Expected: my_recipe.recipe.json shows as "new" (no .meta.json sidecar in .wk/)
 ```
 
 ### Test scenario: plugin hooks
@@ -507,7 +507,7 @@ wk pull
 ls -la ./assets/
 ```
 
-Expected: recipe/connection JSON files downloaded. Each has a companion `.wk-meta.json` sidecar.
+Expected: recipe/connection JSON files downloaded. Each has a companion `.meta.json` sidecar under `.wk/`.
 
 **Status after pull (no changes):**
 
@@ -520,8 +520,8 @@ Expected: all files show `unchanged`.
 **Modify a file and check status:**
 
 ```sh
-# Pick any .json file (not a .wk-meta.json)
-echo '{"modified": true}' >> ./assets/$(ls ./assets/*.json | grep -v wk-meta | head -1)
+# Pick any asset .json file
+echo '{"modified": true}' >> ./assets/$(ls ./assets/*.json | head -1)
 wk status
 ```
 
