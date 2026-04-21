@@ -132,8 +132,9 @@ func writeKeychainProfile(t *testing.T, p *auth.Profile) {
 	}
 }
 
-// writeProjectFileStore creates .wk/wk.toml + .wk/profiles.env at cwd for
-// a named profile.
+// writeProjectFileStore creates .wk/wk.toml + profiles.env at cwd for a
+// named profile. profiles.env lives at cwd/profiles.env per ADR-006
+// Sub-decision 3 (April 20 revision) — project root, outside .wk/.
 func writeProjectFileStore(t *testing.T, cwd, name, token string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(cwd, config.ProjectDir), 0755); err != nil {

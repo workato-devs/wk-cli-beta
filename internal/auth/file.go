@@ -22,17 +22,19 @@ const ProfilesEnvFile = "profiles.env"
 // The CLI reads this file but never writes to it (ADR-006 Sub-decision 3).
 // The file is developer- or pipeline-authored.
 //
-// The file lives at <projectRoot>/.wk/profiles.env — alongside wk.toml inside
-// the tool-managed directory. Placing it there means it's automatically
-// hidden by .wk/.gitignore (ADR-005 Decision 8), which matters because
-// profiles.env holds API tokens and must never be committed.
+// The file lives at <projectRoot>/profiles.env — project root, outside .wk/.
+// Developer-authored files don't belong inside the CLI's tool-managed
+// directory: .wk/ is CLI-created by `wk init`, so a file that init must
+// *read* cannot live in a directory init is responsible for *creating*.
+// `wk init` appends `profiles.env` to <projectRoot>/.gitignore as the
+// replacement safety net (the .wk/ self-gitignore no longer covers it).
 type FileStore struct {
 	Path string // absolute path to profiles.env
 }
 
-// NewFileStore returns a FileStore anchored at <projectRoot>/.wk/profiles.env.
+// NewFileStore returns a FileStore anchored at <projectRoot>/profiles.env.
 func NewFileStore(projectRoot string) *FileStore {
-	return &FileStore{Path: filepath.Join(projectRoot, config.ProjectDir, ProfilesEnvFile)}
+	return &FileStore{Path: filepath.Join(projectRoot, ProfilesEnvFile)}
 }
 
 // Exists reports whether the backing file is present.

@@ -15,22 +15,23 @@ import (
 	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 )
 
-// resolveVerifyClient builds an API client for the named profile, used by
-// init --verify. This honors StoreType routing (ADR-006 Sub-decision 6) via
-// the shared resolveProfileAndCred helper.
-func resolveVerifyClient(cmd *cobra.Command, profileName string) (api.Client, error) {
-	profile, cred, err := resolveProfileAndCred(cmd.Context(), profileName)
+// resolveVerifyClientInDir builds an API client for the named profile, used
+// by init --verify. Anchors file-store lookups on targetDir rather than CWD
+// because init runs from outside the project it's creating — see
+// resolveProfileAndCredForInit for the full rationale.
+func resolveVerifyClientInDir(cmd *cobra.Command, profileName, targetDir string) (api.Client, error) {
+	profile, cred, err := resolveProfileAndCredForInit(cmd.Context(), profileName, targetDir)
 	if err != nil {
 		return nil, err
 	}
-
-	var opts []api.ClientOption
-	if flagVerbose {
-		opts = append(opts, api.WithVerbose(true))
+	if profile == nil {
+		// Deferred mode: --store-type file was passed but profiles.env is
+		// missing. Verify cannot run without credentials — surface a clean
+		// error pointing at the expected file.
+		return nil, fmt.Errorf("cannot verify: no profile resolved (create %s before passing --verify)",
+			auth.NewFileStore(targetDir).Path)
 	}
-
-	client := api.NewHTTPClient(profile.BaseURL+config.APIPathPrefix, cred.Token, opts...)
-	return client, nil
+	return buildVerifyClient(profile, cred), nil
 }
 
 // verifyServerPath walks the Workato folder hierarchy to confirm that
@@ -212,40 +213,19 @@ wk sync add/remove for incremental edits.`,
 				return fmt.Errorf("refusing to scaffold outside current directory: %s", targetDir)
 			}
 
-			// Validate profile according to --store-type. File-store profiles
-			// live at <target>/.wk/profiles.env (alongside wk.toml per ADR-006
-			// Sub-decision 3); keychain profiles live in the user-level
-			// profiles.json and must match the active profile.
-			var resolvedProfile *auth.Profile
-			switch flagStoreType {
-			case "", string(auth.StoreKeychain):
-				pm := auth.NewProfileManager()
-				p, err := pm.GetProfile(profile)
-				if err != nil {
-					return fmt.Errorf("profile %q not found — run 'wk auth login' first", profile)
-				}
-				if activeName, err := pm.GetActiveProfile(); err == nil && activeName != profile {
-					return fmt.Errorf("active profile %q does not match target profile %q", activeName, profile)
-				}
-				resolvedProfile = p
-			case string(auth.StoreFile):
-				fs := auth.NewFileStore(targetDir)
-				if !fs.Exists() {
-					fmt.Fprintf(os.Stderr,
-						"warning: --store-type file specified but no %s found at %s — create one before running commands\n",
-						auth.ProfilesEnvFile, fs.Path)
-					// resolvedProfile stays nil; snapshot fields will be
-					// omitted from wk.toml (omitempty).
-				} else {
-					p, ferr := fs.GetProfile(profile)
-					if ferr != nil {
-						return fmt.Errorf("profile %q not found in %s", profile, fs.Path)
-					}
-					resolvedProfile = p
-				}
-			default:
-				return fmt.Errorf("unknown --store-type %q; valid: %s, %s",
-					flagStoreType, auth.StoreKeychain, auth.StoreFile)
+			// Validate profile. File-store profiles live at
+			// <targetDir>/profiles.env (ADR-006 Sub-decision 3, April 20
+			// revision — project root, outside .wk/, so the file can exist
+			// before init creates .wk/). Keychain profiles live in
+			// ~/.wk/profiles.json and must match the active profile.
+			// resolveProfileForInit anchors file-store lookups on targetDir
+			// (not CWD) and returns profile metadata only — credentials are
+			// deferred to --verify. A (nil profile, nil err) return is the
+			// --store-type file deferred-mode sentinel — scaffold without
+			// snapshot fields.
+			resolvedProfile, err := resolveProfileForInit(cmd.Context(), profile, targetDir)
+			if err != nil {
+				return err
 			}
 
 			// Check if target already contains a .wk/wk.toml. ADR-005 Decision 2:
@@ -301,7 +281,7 @@ wk sync add/remove for incremental edits.`,
 			}
 
 			if flagVerify && len(requested) > 0 {
-				client, err := resolveVerifyClient(cmd, profile)
+				client, err := resolveVerifyClientInDir(cmd, profile, targetDir)
 				if err != nil {
 					return fmt.Errorf("--verify requires auth: %w", err)
 				}
@@ -342,6 +322,14 @@ wk sync add/remove for incremental edits.`,
 			// Write .wk/.gitignore (self-ignore). ADR-005 Decision 8.
 			if err := ensureWkGitignore(targetDir); err != nil {
 				return fmt.Errorf("writing .wk/.gitignore: %w", err)
+			}
+
+			// Append `profiles.env` to <targetDir>/.gitignore. ADR-006
+			// Sub-decision 3 (April 20 revision): profiles.env lives at
+			// project root, outside .wk/, so the .wk/ self-gitignore no
+			// longer covers it. This is the replacement safety net.
+			if err := ensureRootGitignoreEntry(targetDir, auth.ProfilesEnvFile); err != nil {
+				return fmt.Errorf("writing .gitignore: %w", err)
 			}
 
 			result := map[string]string{
@@ -427,8 +415,7 @@ const wkGitignoreContent = `# wk CLI — tool-managed directory. Contents are ma
 // ensureWkGitignore writes <projectRoot>/.wk/.gitignore with the fixed
 // self-ignore content. The file is owned by the CLI — overwriting it
 // unconditionally is intentional so developers can rely on the content
-// never drifting. The project-root .gitignore is never touched: if the
-// developer maintains one, it remains their file.
+// never drifting.
 func ensureWkGitignore(projectRoot string) error {
 	wkDir := filepath.Join(projectRoot, config.ProjectDir)
 	if err := os.MkdirAll(wkDir, 0755); err != nil {
@@ -436,4 +423,38 @@ func ensureWkGitignore(projectRoot string) error {
 	}
 	path := filepath.Join(wkDir, ".gitignore")
 	return os.WriteFile(path, []byte(wkGitignoreContent), 0644)
+}
+
+// ensureRootGitignoreEntry idempotently appends `entry` as its own line to
+// <projectRoot>/.gitignore, creating the file if absent. Unlike
+// ensureWkGitignore, this file is developer-owned — we only add our one line,
+// never rewrite existing content. Line-equality matching (after whitespace
+// trim) deliberately avoids interpreting globs: if a developer already has
+// `*.env` in their gitignore, we still add `profiles.env` explicitly so the
+// safety net is visible at a glance.
+//
+// Introduced as part of ADR-006 Sub-decision 3 (April 20 revision) after
+// profiles.env moved out of .wk/ — the .wk/ self-gitignore no longer covers
+// it, so this function provides the replacement safety net.
+func ensureRootGitignoreEntry(projectRoot, entry string) error {
+	path := filepath.Join(projectRoot, ".gitignore")
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	for _, line := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(line) == entry {
+			return nil
+		}
+	}
+	var buf strings.Builder
+	if len(existing) > 0 {
+		buf.Write(existing)
+		if !strings.HasSuffix(string(existing), "\n") {
+			buf.WriteByte('\n')
+		}
+	}
+	buf.WriteString(entry)
+	buf.WriteByte('\n')
+	return os.WriteFile(path, []byte(buf.String()), 0644)
 }

@@ -47,8 +47,9 @@ func seedKeychainProfile(t *testing.T, p *auth.Profile, active bool) {
 	}
 }
 
-// seedProjectProfilesEnv writes a .wk/wk.toml + .wk/profiles.env into cwd
-// with the given profile name.
+// seedProjectProfilesEnv writes .wk/wk.toml + profiles.env into cwd with
+// the given profile name. profiles.env lives at cwd/profiles.env per
+// ADR-006 Sub-decision 3 (April 20 revision) — project root, outside .wk/.
 func seedProjectProfilesEnv(t *testing.T, cwd, name string) {
 	t.Helper()
 	os.MkdirAll(filepath.Join(cwd, config.ProjectDir), 0755)

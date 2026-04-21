@@ -549,7 +549,7 @@ See [docs/ci-setup.md](./ci-setup.md) for the full non-interactive and
 file-store workflows. Minimum smoke:
 
 ```sh
-# Inside a project directory containing .wk/profiles.env with a "ci" record:
+# Inside a project directory containing profiles.env with a "ci" record:
 wk recipes list --profile ci --store-type file --json
 ```
 

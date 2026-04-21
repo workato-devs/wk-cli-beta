@@ -56,10 +56,15 @@ within one invocation are flagged as errors.`,
 				if rctx.Config.Profile == "" {
 					return fmt.Errorf("--verify requires the project to have a bound profile (cfg.Profile)")
 				}
-				client, verr := resolveVerifyClient(cmd, rctx.Config.Profile)
+				// sync_add runs inside an existing project, so the runtime
+				// CWD-walk-up resolver is correct here. init uses its own
+				// directory-parameterized resolver because it runs from
+				// outside the project it's creating; sync_add does not.
+				profile, cred, verr := resolveProfileAndCred(cmd.Context(), rctx.Config.Profile)
 				if verr != nil {
 					return fmt.Errorf("--verify requires auth: %w", verr)
 				}
+				client := buildVerifyClient(profile, cred)
 				for i := range requested {
 					leaf, err := verifyServerPath(cmd, client, requested[i].ServerPath)
 					if err != nil {

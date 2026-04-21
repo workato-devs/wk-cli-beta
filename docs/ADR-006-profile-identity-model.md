@@ -2,13 +2,14 @@
 
 **Status:** Proposed
 **Date:** April 9, 2026
-**Last Revised:** April 17, 2026
+**Last Revised:** April 20, 2026
 **Authors:** Zayne Turner, Chris Miller
 **Deciders:** DevRel Engineering, Platform CLI Team
 **References:** ADR-001 (Decision 4: Project Model, Decision 5: Credential Storage), ADR-005 (Decision 8: `.wk/` gitignored)
 
 > **Revision history**
 > - **April 17, 2026** — Integrated login ergonomic improvements from field testing: `--workspace` becomes an optional override (introspected from `GET /users/me`), `--name` gains a computed default from `<workspace-slug>-<environment>[-<region>]`, and `wk.toml` is extended with `workspace`, `workspace_id`, `environment`, and `email` as informational snapshot fields (safe because `.wk/` is gitignored per ADR-005). Non-interactive mode behavior formalized as Sub-decision 10. Environment introspection via `/activity_logs` considered and deferred.
+> - **April 20, 2026** — Sub-decision 3 revised: `profiles.env` moves out of `.wk/` back to `<projectRoot>/profiles.env`. The original "co-locate with `wk.toml` inside `.wk/`" placement (finalized by action item 42 on the April 17 revision) created a bootstrap contradiction — `.wk/` is CLI-created by `wk init`, but `profiles.env` is developer-authored and must exist *before* init can resolve the profile it names. Issue #40 surfaced the contradiction: `wk init` run from the parent directory (the supported invocation) cannot resolve a file-store profile because the profile resolver walks up from CWD looking for `.wk/wk.toml`, which doesn't exist yet. The fix is structural: files the CLI reads but never writes belong outside the tool-managed directory. The `.wk/` self-gitignore no longer covers `profiles.env`; `wk init` now idempotently appends `profiles.env` to `<projectRoot>/.gitignore` as the replacement safety net. Sub-decisions 7 (CI/CD), 8 (init validation), and 9 (Tier 3 storage pattern) updated inline to reflect the new path.
 
 ---
 
@@ -195,11 +196,12 @@ TOKEN=wk-yyyyy
 
 - Each `NAME=` line starts a new profile record. Fields following it until the next `NAME=` line (or EOF) belong to that profile.
 - Required per record: `NAME`, `REGION`, `TOKEN`. Optional: `WORKSPACE`, `WORKSPACE_ID` (integer), `ENVIRONMENT`, `EMAIL`, `BASE_URL`, `STORE_TYPE`. The optional fields populate the `wk.toml` snapshot so `cat wk.toml` reveals what the project targets; when absent, the corresponding snapshot fields are simply empty.
-- Keys are unprefixed — no `WK_` prefix. The file is CLI-owned; key names correspond directly to profile struct fields.
+- Keys are unprefixed — no `WK_` prefix. Key names correspond directly to profile struct fields.
 - The CLI reads but **does not write** to this file. Developers and CI/CD pipelines create and manage it directly.
-- **Path:** `<project-root>/.wk/profiles.env` — alongside `wk.toml` inside the tool-managed directory (per ADR-005 Decision 1). Co-locating with `wk.toml` also means `profiles.env` is automatically covered by `.wk/.gitignore` (ADR-005 Decision 8), so the secrets file cannot be committed by accident.
+- **Path:** `<projectRoot>/profiles.env` — project root, *outside* `.wk/`. This is load-bearing, not incidental. `.wk/` encodes tool-managed, CLI-writable state (wk.toml, sidecar metadata, folder-ID cache) self-gitignored via `.wk/.gitignore`. `profiles.env` is developer-authored and read-only to the CLI, so placing it inside a CLI-managed directory is a category error — and a practical one, because `.wk/` does not exist until `wk init` creates it, so a file the CLI needs to *read during init* cannot live in a directory init is responsible for *creating*. The earlier "co-locate with wk.toml inside `.wk/`" placement (action item 42) ran into that contradiction (issue #40); project-root placement eliminates it: the file can exist before `.wk/` does, making template clones, first-dev bootstrap, and CI workflows work without a `mkdir -p .wk` prelude.
+- **Gitignore:** because `profiles.env` no longer benefits from the `.wk/` self-gitignore, `wk init` idempotently appends a single `profiles.env` line to `<projectRoot>/.gitignore` (creating the file if absent, no-op if the line is already present). This is the replacement safety net. Template authors and CI pipelines may also add the line for defense in depth; duplicates are skipped by the idempotent append.
 - Multi-profile files are supported (designed for) but single-profile is the common case.
-- A `docs/profiles.env.example` file in the repo shows the expected format. It deliberately lives under `docs/` rather than the project root so that a developer can't confuse it for a working `profiles.env` in the wrong location — the real file belongs at `<your-project>/.wk/profiles.env`.
+- A `docs/profiles.env.example` file in the repo shows the expected format. It deliberately lives under `docs/` rather than the project root so that a developer can't confuse it for a working `profiles.env` in the wrong location — the real file belongs at `<your-project>/profiles.env`.
 
 **Note:** This is not a standard `.env` file — standard dotenv parsers expect unique keys. This is a CLI-owned file that uses key=value syntax with `NAME=` as a record delimiter. The `.env` extension signals "key=value config with secrets — do not commit," which is the right developer signal.
 
@@ -250,8 +252,7 @@ steps:
   - uses: actions/checkout@v4
   - name: Write credentials
     run: |
-      mkdir -p .wk
-      cat <<EOF > .wk/profiles.env
+      cat <<EOF > profiles.env
       NAME=ci
       WORKSPACE=acme-corp
       ENVIRONMENT=prod
@@ -268,10 +269,11 @@ steps:
 
 `wk init` is updated to validate the named profile and enforce active-profile consistency. These changes are cohesive with ADR-005 (project scaffolding).
 
-**Profile validation:** `init --profile <name>` validates that the named profile exists before writing `wk.toml`. The `--store-type` flag tells `init` which store to check:
+**Profile validation:** `init --profile <name>` validates that the named profile exists before writing `wk.toml`. The resolver walks a single order, all anchored at the target directory (not CWD) because `init` is designed to run from outside the project it's creating:
 
-- Default (no `--store-type`): checks `~/.wk/profiles.json` (keychain profiles)
-- `--store-type file`: checks `<target>/.wk/profiles.env`. Per ADR-005 Decision 2 step 4, `init` can scaffold into an existing directory — the developer creates `<target>/.wk/` and places `profiles.env` in it before running `init` (a one-liner: `mkdir -p my-project/.wk && write-secrets > my-project/.wk/profiles.env`).
+- **Implicit (no `--store-type`):** check `~/.wk/profiles.json` (keychain) first; on miss, check `<target>/profiles.env`. Error names both locations searched.
+- **`--store-type keychain`:** keychain only, with the active-profile match check enforced.
+- **`--store-type file`:** `<target>/profiles.env` only. The developer creates the file before running `init` (a one-liner: `write-secrets > my-project/profiles.env`). No `mkdir` prelude is needed — the file lives at project root, not inside `.wk/`, so it can exist before `init` creates the `.wk/` directory.
 
 If `--store-type file` is specified and no `profiles.env` exists at that path, `init` warns ("no profiles.env found — create one before running commands") and defers credential validation to runtime. Profile metadata is not validated in this case.
 
@@ -362,7 +364,7 @@ Considered introspecting environment from `GET /activity_logs.workspace.environm
 - **`wk init` writes more fields**: `init` must resolve workspace, environment, and email from the active profile and write them to `wk.toml`. Minimal code addition but a new responsibility.
 - **Two representations of workspace/environment**: The profile store remains authoritative; `wk.toml` holds a local snapshot. Drift is possible (profile retargeted, workspace renamed server-side). Drift is display-only — routing always uses the profile store — and handling is deferred pending field signal.
 - **Interactive vs. non-interactive asymmetry**: `wk auth login --token X` behaves differently in a TTY vs. a pipe. Documented explicitly, but a developer copying a working interactive command into a CI script needs to know to add `--environment`.
-- **File store setup**: Developers using the file store must manually create and manage `<project>/.wk/profiles.env`. The CLI does not scaffold it. Mitigated by `docs/profiles.env.example` and the simple key=value format.
+- **File store setup**: Developers using the file store must manually create and manage `<project>/profiles.env`. The CLI does not scaffold it. Mitigated by `docs/profiles.env.example` and the simple key=value format. `wk init` appends `profiles.env` to the project's `.gitignore` as the safety net (replacing the `.wk/` self-gitignore coverage).
 - **`init` is stricter**: Profile must exist, active profile must match. Developers who previously used arbitrary profile names in `wk.toml` must now create the profile first. This is an intentional safety improvement.
 
 ### What we'll need to revisit
@@ -429,7 +431,15 @@ Considered introspecting environment from `GET /activity_logs.workspace.environm
 39. [x] Auto-name format change: `<region>-<workspace-slug>-<environment>` with region always leading. Previously region was omitted for `us` and suffixed for others, which hid the most discriminating field in the common case.
 40. [x] Region expansion: add `il` (`app.il.workato.com`) and `cn` (`app.workatoapp.cn` — note the distinct `.workatoapp.cn` domain, not the standard `app.<region>.workato.com` pattern; Workato's allowlist docs at https://docs.workato.com/en/security/ip-allowlists.html confirm this). Drift guard `TestBaseURL_AllRegions` ensures `config.RegionURLs` stays aligned with `auth.ValidRegions()` going forward.
 41. [x] Consolidate duplicate BaseURL mapping: `internal/auth/file.go` now routes through `config.BaseURL` instead of maintaining its own region → URL switch. The "avoid circular import" concern that justified the duplication is stale (config does not import auth).
-42. [x] Fix `profiles.env` location bug: `NewFileStore` was anchored at `<projectRoot>/profiles.env`, but the original design ("alongside `wk.toml`") meant the file should have moved into `.wk/` when ADR-005 relocated `wk.toml`. The path is now `<projectRoot>/.wk/profiles.env`, which also puts it under the `.wk/.gitignore` self-ignore for free. The example file moved from the repo root to `docs/profiles.env.example` so its presence can't mislead anyone into dropping a real `profiles.env` at the wrong location.
+42. [x] ~~Fix `profiles.env` location bug: `NewFileStore` was anchored at `<projectRoot>/profiles.env`, but the original design ("alongside `wk.toml`") meant the file should have moved into `.wk/` when ADR-005 relocated `wk.toml`. The path is now `<projectRoot>/.wk/profiles.env`, which also puts it under the `.wk/.gitignore` self-ignore for free. The example file moved from the repo root to `docs/profiles.env.example` so its presence can't mislead anyone into dropping a real `profiles.env` at the wrong location.~~ **Superseded by the April 20 revision (items 44–46) after issue #40 surfaced the bootstrap contradiction.** The "alongside `wk.toml`" framing conflated *location* with *ownership* — `profiles.env` is developer-owned and read-only to the CLI, which rules out living inside `.wk/` regardless of where `wk.toml` moves. `docs/profiles.env.example` remains under `docs/` to avoid the same "wrong location by example" footgun.
+
+### Bootstrap-gap fix (April 20, 2026 revision — issue #40)
+44. [x] Move `profiles.env` out of `.wk/` back to `<projectRoot>/profiles.env`. Single-line change in `internal/auth/file.go` `NewFileStore`; update the doc comment naming the path.
+45. [x] Add directory-parameterized init-specific resolvers (`resolveProfileForInit(ctx, name, targetDir)` for profile-only init validation and `resolveProfileAndCredForInit` for `--verify` client construction) that anchor file-store lookups on `targetDir` rather than walking up from CWD. Init call sites thread `targetDir` through. Runtime resolvers (`resolveProfileAndCred`, `fileStoreForCwd`) keep CWD-walk-up semantics unchanged for commands that run inside a project.
+46. [x] `wk init` idempotently appends a `profiles.env` line to `<targetDir>/.gitignore` on success (creating the file if absent, skipping if already present). Replaces the coverage previously provided by `.wk/.gitignore`.
+47. [x] Update `docs/profiles.env.example`, `docs/ci-setup.md`, `docs/TESTING.md`, `docs/ADR-005-project-scaffolding.md`, and any help text or error messages that name the old `.wk/profiles.env` path.
+48. [x] Update tests that seed `profiles.env` at `.wk/profiles.env` to seed at the new project-root location (auto-updated via `auth.NewFileStore(root).Path`). Added new cases for issue #40 symptoms (1: implicit store-type, 2: `--store-type file --verify`), gitignore safety net (append + idempotent re-run), deferred mode, and the "profile not found" error naming the new path.
+49. [ ] No migration code. Developers with an existing `<projectRoot>/.wk/profiles.env` get a clean "profile not found at `<projectRoot>/profiles.env`" error and move the file with `mv .wk/profiles.env ./profiles.env`. Pre-beta, no within-CLI backward-compat obligation.
 
 ### Deferred to future revision
 34. [ ] File a Platform request for a `/session` or `/whoami` endpoint returning `{workspace, environment}` — unblocks environment introspection without the `/activity_logs` workaround
