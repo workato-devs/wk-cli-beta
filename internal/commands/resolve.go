@@ -109,6 +109,141 @@ func resolveProfileAndCred(ctx context.Context, name string) (*auth.Profile, *au
 	}
 }
 
+// resolveProfileForInit is the init-time profile-metadata resolver. Anchors
+// file-store lookups on the explicit targetDir rather than walking up from
+// CWD, because `wk init` runs from outside the project it's creating — so
+// FindProjectRoot(cwd) cannot reach <targetDir>/profiles.env.
+//
+// Under the new layout (ADR-006 Sub-decision 3, April 20 revision)
+// profiles.env lives at <projectRoot>/profiles.env, outside .wk/, so the
+// file can exist before init creates .wk/.
+//
+// Credentials are NOT fetched here — init's initial validation only needs
+// profile metadata (for the wk.toml snapshot). Credentials are deferred to
+// --verify, which calls resolveProfileAndCredForInit.
+//
+// Three return shapes:
+//   - (profile, nil)  — resolved normally
+//   - (nil, nil)      — deferred mode: --store-type file was passed
+//                       explicitly and profiles.env is missing at targetDir.
+//                       A warning has been emitted; caller scaffolds without
+//                       snapshot fields.
+//   - (nil, err)      — hard error
+func resolveProfileForInit(ctx context.Context, name, targetDir string) (*auth.Profile, error) {
+	switch flagStoreType {
+	case "":
+		return resolveImplicitProfileForInit(name, targetDir)
+	case string(auth.StoreKeychain):
+		pm := auth.NewProfileManager()
+		profile, err := pm.GetProfile(name)
+		if err != nil {
+			return nil, fmt.Errorf("profile %q not found in profiles.json", name)
+		}
+		if err := enforceActiveProfileMatch(name); err != nil {
+			return nil, err
+		}
+		return profile, nil
+	case string(auth.StoreFile):
+		fs := auth.NewFileStore(targetDir)
+		if !fs.Exists() {
+			fmt.Fprintf(os.Stderr,
+				"warning: --store-type file specified but no %s found at %s — create one before running commands\n",
+				auth.ProfilesEnvFile, fs.Path)
+			return nil, nil
+		}
+		profile, err := fs.GetProfile(name)
+		if err != nil {
+			return nil, fmt.Errorf("profile %q not found in %s", name, fs.Path)
+		}
+		return profile, nil
+	default:
+		return nil, fmt.Errorf("unknown --store-type %q; valid: %s, %s",
+			flagStoreType, auth.StoreKeychain, auth.StoreFile)
+	}
+}
+
+// resolveProfileAndCredForInit is resolveProfileForInit + credential fetch.
+// Used by --verify client construction, where both are needed.
+// Returns (nil, nil, nil) in the --store-type file deferred-mode case so
+// callers can surface a clean "cannot verify without credentials" error.
+func resolveProfileAndCredForInit(ctx context.Context, name, targetDir string) (*auth.Profile, *auth.Credential, error) {
+	profile, err := resolveProfileForInit(ctx, name, targetDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if profile == nil {
+		return nil, nil, nil
+	}
+	switch profile.StoreType {
+	case auth.StoreFile:
+		fs := auth.NewFileStore(targetDir)
+		cred, cerr := fs.Get(ctx, name)
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("no credentials for profile %q in %s: %w", name, fs.Path, cerr)
+		}
+		return profile, cred, nil
+	default:
+		cred, cerr := (&auth.KeyringStore{}).Get(ctx, name)
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("no credentials for profile %q: %w", name, cerr)
+		}
+		return profile, cred, nil
+	}
+}
+
+// resolveImplicitProfileForInit mirrors resolveImplicit's routing but
+// profile-metadata-only and anchors the file-store fallback on targetDir
+// instead of CWD. Keychain first (preserves today's default when the profile
+// is registered globally), then <targetDir>/profiles.env. When the profile
+// resolves via keychain, the active-profile match check runs; file-store
+// profiles bypass it per ADR-006 Sub-decision 3.
+func resolveImplicitProfileForInit(name, targetDir string) (*auth.Profile, error) {
+	pm := auth.NewProfileManager()
+	if profile, err := pm.GetProfile(name); err == nil {
+		if err := enforceActiveProfileMatch(name); err != nil {
+			return nil, err
+		}
+		return profile, nil
+	}
+
+	fs := auth.NewFileStore(targetDir)
+	if fs.Exists() {
+		if profile, perr := fs.GetProfile(name); perr == nil {
+			return profile, nil
+		}
+	}
+
+	return nil, fmt.Errorf("profile %q not found in profiles.json or %s", name, fs.Path)
+}
+
+// enforceActiveProfileMatch errors when the global active profile name differs
+// from the requested name. Moved from init.go's profile-validation switch so
+// both the explicit-keychain and implicit-keychain branches of the init
+// resolver apply the same check.
+func enforceActiveProfileMatch(name string) error {
+	pm := auth.NewProfileManager()
+	activeName, err := pm.GetActiveProfile()
+	if err != nil {
+		return nil
+	}
+	if activeName != name {
+		return fmt.Errorf("active profile %q does not match target profile %q", activeName, name)
+	}
+	return nil
+}
+
+// buildVerifyClient constructs the API client used by --verify flows.
+// Lifted from init.go so init and sync_add share client construction
+// without sharing resolver choice (init uses resolveProfileAndCredForInit,
+// sync_add uses resolveProfileAndCred — the signatures genuinely differ).
+func buildVerifyClient(profile *auth.Profile, cred *auth.Credential) api.Client {
+	var opts []api.ClientOption
+	if flagVerbose {
+		opts = append(opts, api.WithVerbose(true))
+	}
+	return api.NewHTTPClient(profile.BaseURL+config.APIPathPrefix, cred.Token, opts...)
+}
+
 func resolveImplicit(ctx context.Context, name string) (*auth.Profile, *auth.Credential, error) {
 	pm := auth.NewProfileManager()
 	if profile, err := pm.GetProfile(name); err == nil {
@@ -216,7 +351,7 @@ func checkProfileMatch(cfg *config.Config, profileName string) error {
 // to invoke the named project profile, branching on where it's configured:
 //
 //   - keychain profile (~/.wk/profiles.json): use --profile or wk auth switch
-//   - file-store profile (<project>/.wk/profiles.env): use --profile X
+//   - file-store profile (<projectRoot>/profiles.env): use --profile X
 //     --store-type file; file-store profiles cannot be set globally active
 //   - not configured anywhere: surface that fact instead of proposing a
 //     command that will fail at the next step
@@ -237,7 +372,7 @@ func profileSwitchHint(name string) string {
 			}
 		}
 	}
-	return fmt.Sprintf("profile %q not found in keychain or profiles.env — check for typos or run 'wk auth login' / create .wk/profiles.env", name)
+	return fmt.Sprintf("profile %q not found in keychain or profiles.env — check for typos or run 'wk auth login' / create <projectRoot>/profiles.env", name)
 }
 
 // refreshSnapshotIfStale rewrites wk.toml's snapshot fields (workspace,

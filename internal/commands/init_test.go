@@ -393,12 +393,14 @@ func TestInitStoreTypeFile_HydratesFromProfilesEnv(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	// Pre-create the target .wk/ directory and drop a profiles.env in it.
-	// profiles.env lives at <projectRoot>/.wk/profiles.env per ADR-006
-	// Sub-decision 3 (alongside wk.toml) so that .wk/.gitignore automatically
-	// prevents accidental commits of the secrets file.
+	// Pre-create the target directory and drop profiles.env at its root.
+	// profiles.env lives at <projectRoot>/profiles.env per ADR-006
+	// Sub-decision 3 (April 20, 2026 revision) — project root, outside
+	// .wk/, so the file can exist before init creates .wk/. init will
+	// append `profiles.env` to the project's .gitignore as the safety net
+	// that the .wk/ self-gitignore used to provide.
 	projectDir := filepath.Join(dir, "ci-proj")
-	if err := os.MkdirAll(filepath.Join(projectDir, config.ProjectDir), 0755); err != nil {
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		t.Fatalf("creating dir: %v", err)
 	}
 	profilesEnv := "NAME=ci\nWORKSPACE=acme\nENVIRONMENT=prod\nREGION=us\nTOKEN=secret\n"
@@ -455,14 +457,28 @@ func TestInitWritesWkGitignore(t *testing.T) {
 		t.Errorf(".wk/.gitignore missing \"!.gitignore\" re-inclusion, got:\n%s", body)
 	}
 
-	// Project-root .gitignore must NOT be created — developer owns that file.
+	// Project-root .gitignore MUST exist with a profiles.env entry — the
+	// safety net replacing the .wk/ self-gitignore coverage that was lost
+	// when profiles.env moved to project root (ADR-006 Sub-decision 3,
+	// April 20 revision).
 	rootIgnore := filepath.Join(dir, "gitigproj", ".gitignore")
-	if _, err := os.Stat(rootIgnore); !os.IsNotExist(err) {
-		t.Errorf("project-root .gitignore should not exist, got err=%v", err)
+	rootBody, err := os.ReadFile(rootIgnore)
+	if err != nil {
+		t.Fatalf("reading project-root .gitignore: %v", err)
+	}
+	hasEntry := false
+	for _, line := range strings.Split(string(rootBody), "\n") {
+		if strings.TrimSpace(line) == "profiles.env" {
+			hasEntry = true
+			break
+		}
+	}
+	if !hasEntry {
+		t.Errorf("project-root .gitignore missing profiles.env entry, got:\n%s", rootBody)
 	}
 }
 
-func TestInitDoesNotModifyProjectRootGitignore(t *testing.T) {
+func TestInitAppendsProfilesEnvToProjectRootGitignore(t *testing.T) {
 	cleanupHome := setupTestHome(t)
 	defer cleanupHome()
 
@@ -471,7 +487,9 @@ func TestInitDoesNotModifyProjectRootGitignore(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	// Pre-create target with a developer-owned .gitignore unrelated to wk.
+	// Pre-create target with a developer-owned .gitignore containing
+	// unrelated entries. init should append `profiles.env` without
+	// disturbing the existing lines.
 	projectDir := filepath.Join(dir, "devproj")
 	os.MkdirAll(projectDir, 0755)
 	preExisting := "node_modules/\ndist/\n"
@@ -487,13 +505,50 @@ func TestInitDoesNotModifyProjectRootGitignore(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	// Project-root .gitignore should be byte-for-byte unchanged.
+	// Existing lines must be preserved verbatim; `profiles.env` must be
+	// appended after them.
+	want := preExisting + "profiles.env\n"
+	got, err := os.ReadFile(rootIgnore)
+	if err != nil {
+		t.Fatalf("reading .gitignore: %v", err)
+	}
+	if string(got) != want {
+		t.Errorf("project-root .gitignore mismatch.\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+func TestInitProjectRootGitignoreIdempotent(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Pre-seed .gitignore with profiles.env already present. init must
+	// not duplicate the line.
+	projectDir := filepath.Join(dir, "devproj")
+	os.MkdirAll(projectDir, 0755)
+	preExisting := "profiles.env\nnode_modules/\n"
+	rootIgnore := filepath.Join(projectDir, ".gitignore")
+	if err := os.WriteFile(rootIgnore, []byte(preExisting), 0644); err != nil {
+		t.Fatalf("seeding .gitignore: %v", err)
+	}
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "devproj", "--profile", "dev", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
 	got, err := os.ReadFile(rootIgnore)
 	if err != nil {
 		t.Fatalf("reading .gitignore: %v", err)
 	}
 	if string(got) != preExisting {
-		t.Errorf("project-root .gitignore was modified.\nwant: %q\ngot:  %q", preExisting, got)
+		t.Errorf("init should not rewrite .gitignore when entry already present.\nwant: %q\ngot:  %q", preExisting, got)
 	}
 }
 
@@ -978,5 +1033,154 @@ func TestInitRejectsConflictingServerPaths(t *testing.T) {
 	err := root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "conflicting local paths") {
 		t.Errorf("err = %v, want 'conflicting local paths'", err)
+	}
+}
+
+// Issue #40 Symptom 1: `wk init` without --store-type, with --profile P where
+// P only exists in <targetDir>/profiles.env (no keychain entry). Before the
+// April 20 revision this failed with "profile not found — run 'wk auth login'
+// first" because init only consulted profiles.json in the default branch.
+func TestInitResolvesFileStoreProfileImplicitly(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+	// Remove the seeded "dev" profile from profiles.json so init must fall
+	// through to the file-store branch of the implicit resolver.
+	os.Remove(filepath.Join(os.Getenv("HOME"), ".wk", "profiles.json"))
+	os.Remove(filepath.Join(os.Getenv("HOME"), ".wk", "active_profile"))
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	targetDir := filepath.Join(dir, "fs-implicit")
+	os.MkdirAll(targetDir, 0755)
+	body := "NAME=e2e\nWORKSPACE=acme\nWORKSPACE_ID=42\nENVIRONMENT=dev\nEMAIL=e2e@acme.corp\nREGION=us\nSTORE_TYPE=file\nTOKEN=tok\n"
+	if err := os.WriteFile(auth.NewFileStore(targetDir).Path, []byte(body), 0600); err != nil {
+		t.Fatalf("seeding profiles.env: %v", err)
+	}
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "fs-implicit", "--profile", "e2e", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	cfg, err := config.Load(config.ProjectConfigPath(targetDir))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Workspace != "acme" {
+		t.Errorf("Workspace = %q, want acme (snapshot from file-store profile)", cfg.Workspace)
+	}
+}
+
+// Issue #40 Symptom 2: `wk init --store-type file --verify` from parent dir
+// where the profile lives in <targetDir>/profiles.env. Before the April 20
+// revision this failed at the --verify path because resolveVerifyClient
+// routed through fileStoreForCwd (CWD walk-up), which can't find a project
+// that doesn't exist yet. After the fix, resolveVerifyClientInDir anchors
+// on targetDir and the profile resolves even though init runs from outside
+// the project.
+//
+// We don't exercise the real API walk here (no live Workato); the test
+// validates that profile+credential resolution succeeds, which is the path
+// that was broken. A failing resolver errors BEFORE the API call with the
+// "-store-type file requires a project directory" message the issue names.
+func TestInitVerifyClientAnchorsOnTargetDir(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+	os.Remove(filepath.Join(os.Getenv("HOME"), ".wk", "profiles.json"))
+	os.Remove(filepath.Join(os.Getenv("HOME"), ".wk", "active_profile"))
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	targetDir := filepath.Join(dir, "fs-verify")
+	os.MkdirAll(targetDir, 0755)
+	body := "NAME=e2e\nWORKSPACE=acme\nENVIRONMENT=dev\nREGION=us\nSTORE_TYPE=file\nTOKEN=tok\n"
+	if err := os.WriteFile(auth.NewFileStore(targetDir).Path, []byte(body), 0600); err != nil {
+		t.Fatalf("seeding profiles.env: %v", err)
+	}
+
+	// resolveProfileAndCredForInit is the function --verify uses. It must
+	// resolve against targetDir, not CWD (CWD here is `dir`, which has no
+	// wk.toml — the pre-fix fileStoreForCwd would fail here).
+	resetGlobalFlags(t)
+	flagStoreType = string(auth.StoreFile)
+	profile, cred, err := resolveProfileAndCredForInit(nil, "e2e", targetDir)
+	if err != nil {
+		t.Fatalf("resolveProfileAndCredForInit: %v", err)
+	}
+	if profile == nil || cred == nil {
+		t.Fatalf("profile=%v cred=%v, want both non-nil", profile, cred)
+	}
+	if profile.Name != "e2e" {
+		t.Errorf("profile.Name = %q, want e2e", profile.Name)
+	}
+	if cred.Token != "tok" {
+		t.Errorf("cred.Token = %q, want tok", cred.Token)
+	}
+}
+
+// Deferred mode: --store-type file with no profiles.env at targetDir. init
+// continues without a resolved profile; snapshot fields are omitted. No
+// --verify here — with --verify this case errors naturally since there are
+// no credentials to build a client with.
+func TestInitDeferredModeWhenProfilesEnvMissing(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "deferred-proj", "--profile", "e2e", "--store-type", "file", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	cfg, err := config.Load(config.ProjectConfigPath(filepath.Join(dir, "deferred-proj")))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Workspace != "" {
+		t.Errorf("Workspace = %q, want empty (deferred mode leaves snapshot fields unset)", cfg.Workspace)
+	}
+	if cfg.Profile != "e2e" {
+		t.Errorf("Profile = %q, want e2e", cfg.Profile)
+	}
+}
+
+// Profile truly missing from both keychain and target's profiles.env: error
+// should name the expected file-store path so the developer knows where
+// the CLI looked.
+func TestInitProfileNotFoundNamesExpectedPath(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+	os.Remove(filepath.Join(os.Getenv("HOME"), ".wk", "profiles.json"))
+	os.Remove(filepath.Join(os.Getenv("HOME"), ".wk", "active_profile"))
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "missing-proj", "--profile", "ghost", "--json"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	expected := filepath.Join(dir, "missing-proj", auth.ProfilesEnvFile)
+	if !strings.Contains(err.Error(), expected) {
+		t.Errorf("err = %v, want mention of %q", err, expected)
 	}
 }
