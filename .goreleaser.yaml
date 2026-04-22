@@ -1,5 +1,12 @@
 version: 2
 
+project_name: wk
+
+before:
+  hooks:
+  - go mod tidy
+  - go mod verify
+
 builds:
   - id: wk
     main: ./cmd/wk
@@ -13,32 +20,38 @@ builds:
     goarch:
       - amd64
       - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
-      - -X main.commit={{.ShortCommit}}
-      - -X main.date={{.Date}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
 
 archives:
-  - id: default
-    formats:
+  - formats:
       - tar.gz
     format_overrides:
       - goos: windows
         formats:
           - zip
-    name_template: "wk_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files: [LICENSE*, README*]
 
 checksum:
   name_template: "checksums.txt"
+  algorithm: sha256
 
 changelog:
   sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
 
-brews:
-  - repository:
-      owner: workato-devs
-      name: homebrew-tap
-    name: wk
-    homepage: "https://github.com/workato-devs/wk-cli-beta"
-    description: "Workato CLI - manage your Workato workspace from the terminal"
+release:
+  prerelease: auto
