@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,16 @@ import (
 	"github.com/workato-devs/wk-cli-beta/internal/output"
 	"github.com/workato-devs/wk-cli-beta/internal/plugin"
 )
+
+// ExitCodeError is returned when a plugin reports a non-zero exit code.
+// Execute() uses this to set the process exit code without printing an error.
+type ExitCodeError struct {
+	Code int
+}
+
+func (e ExitCodeError) Error() string {
+	return fmt.Sprintf("exit code %d", e.Code)
+}
 
 // Version info set by main via SetVersionInfo.
 var (
@@ -138,6 +149,10 @@ func Execute(ctx context.Context) int {
 	registerAllCommands(root)
 
 	if err := root.ExecuteContext(ctx); err != nil {
+		var exitErr ExitCodeError
+		if errors.As(err, &exitErr) {
+			return exitErr.Code
+		}
 		os.Stderr.WriteString("Error: " + err.Error() + "\n")
 		return 1
 	}
@@ -218,20 +233,34 @@ func makePluginRunE(pluginDir, method string, def *pluginCmdDef) func(*cobra.Com
 			if err != nil {
 				return err
 			}
-			return rctx.Formatter.Format(os.Stdout, json.RawMessage(result))
-		}
-
-		var m2 map[string]any
-		if json.Unmarshal(result, &m2) == nil {
-			for k, v := range m2 {
-				fmt.Fprintf(os.Stdout, "%s: %v\n", k, v)
+			if err := rctx.Formatter.Format(os.Stdout, json.RawMessage(result)); err != nil {
+				return err
 			}
-			return nil
+		} else {
+			var m2 map[string]any
+			if json.Unmarshal(result, &m2) == nil {
+				for k, v := range m2 {
+					fmt.Fprintf(os.Stdout, "%s: %v\n", k, v)
+				}
+			} else {
+				fmt.Fprintf(os.Stdout, "%s\n", string(result))
+			}
 		}
 
-		fmt.Fprintf(os.Stdout, "%s\n", string(result))
-		return nil
+		return exitCodeFromResult(result)
 	}
+}
+
+// exitCodeFromResult extracts the exit_code field from a plugin response and
+// returns an ExitCodeError if it is present and non-zero.
+func exitCodeFromResult(result json.RawMessage) error {
+	var envelope struct {
+		ExitCode *int `json:"exit_code"`
+	}
+	if json.Unmarshal(result, &envelope) == nil && envelope.ExitCode != nil && *envelope.ExitCode != 0 {
+		return ExitCodeError{Code: *envelope.ExitCode}
+	}
+	return nil
 }
 
 // buildPluginParams constructs the RPC params value from positional args and
