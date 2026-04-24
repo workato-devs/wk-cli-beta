@@ -40,6 +40,10 @@ func newPluginsInstallCmd() *cobra.Command {
 				if lookErr != nil {
 					return fmt.Errorf("plugin %q not found on $PATH; to install from a local directory, use: wk plugins install ./%s", source, source)
 				}
+				binPath, err = filepath.EvalSymlinks(binPath)
+				if err != nil {
+					return fmt.Errorf("resolving symlink: %w", err)
+				}
 				source, err = filepath.Abs(filepath.Dir(binPath))
 			} else {
 				source, err = filepath.Abs(source)
