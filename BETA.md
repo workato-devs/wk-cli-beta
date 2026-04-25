@@ -73,4 +73,3 @@ substitute for environment discipline.
 
 - **Issues:** file on the relevant repo ([wk-cli-beta](https://github.com/workato-devs/wk-cli-beta/issues), [wk-lint-beta](https://github.com/workato-devs/wk-lint-beta/issues), [recipe-skills](https://github.com/workato-devs/recipe-skills/issues), [visualizer-ext-beta](https://github.com/workato-devs/visualizer-ext-beta/issues))
 - **Slack:** #wk-beta-testers
-- **Email:** zayne.turner@workato.com
