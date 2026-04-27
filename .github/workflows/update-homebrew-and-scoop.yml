@@ -7,6 +7,11 @@ name: Update Homebrew & Scoop on release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to update from (e.g. v1.0.0-rc6)"
+        required: true
 
 env:
   # For wk-cli-beta:
@@ -20,9 +25,14 @@ jobs:
       - name: Get release info
         id: release
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+          VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download release assets and compute checksums
         id: checksums
@@ -83,8 +93,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "$FORMULA"
-          git commit -m "Update ${{ env.TOOL_NAME }} to $VERSION"
-          git push
+          git diff --cached --quiet && echo "No Homebrew changes" || { git commit -m "Update ${{ env.TOOL_NAME }} to $VERSION" && git push; }
 
       - name: Update Scoop manifest
         env:
@@ -113,5 +122,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "$MANIFEST"
-          git commit -m "Update ${{ env.TOOL_NAME }} to $VERSION"
-          git push
+          git diff --cached --quiet && echo "No Scoop changes" || { git commit -m "Update ${{ env.TOOL_NAME }} to $VERSION" && git push; }
