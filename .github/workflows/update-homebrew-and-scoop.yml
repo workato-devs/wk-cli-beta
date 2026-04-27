@@ -86,10 +86,10 @@ jobs:
           "
           }
 
-          update_sha 'url.*Darwin_arm64' "${{ steps.checksums.outputs.darwin_arm64_sha }}"
-          update_sha 'url.*Darwin_x86_64' "${{ steps.checksums.outputs.darwin_amd64_sha }}"
-          update_sha 'url.*Linux_arm64' "${{ steps.checksums.outputs.linux_arm64_sha }}"
-          update_sha 'url.*Linux_x86_64' "${{ steps.checksums.outputs.linux_amd64_sha }}"
+          update_sha 'Darwin_arm64' "${{ steps.checksums.outputs.darwin_arm64_sha }}"
+          update_sha 'Darwin_x86_64' "${{ steps.checksums.outputs.darwin_amd64_sha }}"
+          update_sha 'Linux_arm64' "${{ steps.checksums.outputs.linux_arm64_sha }}"
+          update_sha 'Linux_x86_64' "${{ steps.checksums.outputs.linux_amd64_sha }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
