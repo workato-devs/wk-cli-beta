@@ -294,3 +294,67 @@ func TestParseProfilesEnv_UnknownKeyWarns(t *testing.T) {
 		t.Errorf("records = %+v, want one record named x", recs)
 	}
 }
+
+func TestWriteProfilesEnv_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ProfilesEnvFile)
+
+	profile := &Profile{
+		Name:        "dev",
+		Workspace:   "acme",
+		WorkspaceID: 42,
+		Environment: "prod",
+		Email:       "dev@acme.corp",
+		Region:      RegionUS,
+		BaseURL:     "https://www.workato.com",
+	}
+	cred := &Credential{Token: "tok-123", Region: RegionUS}
+
+	if err := WriteProfilesEnv(path, profile, cred); err != nil {
+		t.Fatalf("WriteProfilesEnv: %v", err)
+	}
+
+	fs := NewFileStore(dir)
+	p, err := fs.GetProfile("dev")
+	if err != nil {
+		t.Fatalf("GetProfile: %v", err)
+	}
+	if p.Name != "dev" || p.Workspace != "acme" || p.WorkspaceID != 42 ||
+		p.Environment != "prod" || p.Email != "dev@acme.corp" {
+		t.Errorf("profile mismatch: %+v", p)
+	}
+
+	c, err := fs.Get(context.Background(), "dev")
+	if err != nil {
+		t.Fatalf("Get credential: %v", err)
+	}
+	if c.Token != "tok-123" {
+		t.Errorf("Token = %q, want tok-123", c.Token)
+	}
+}
+
+func TestWriteProfilesEnv_AppendsToExisting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ProfilesEnvFile)
+
+	first := &Profile{Name: "dev", Region: RegionUS}
+	firstCred := &Credential{Token: "t1", Region: RegionUS}
+	if err := WriteProfilesEnv(path, first, firstCred); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+
+	second := &Profile{Name: "prod", Region: RegionEU}
+	secondCred := &Credential{Token: "t2", Region: RegionEU}
+	if err := WriteProfilesEnv(path, second, secondCred); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+
+	fs := NewFileStore(dir)
+	names, err := fs.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(names) != 2 || names[0] != "dev" || names[1] != "prod" {
+		t.Errorf("List = %v, want [dev prod]", names)
+	}
+}
