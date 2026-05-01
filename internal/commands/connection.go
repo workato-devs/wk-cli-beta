@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
+	"github.com/workato-devs/wk-cli-beta/internal/output"
 )
 
 func newConnectionsCmd() *cobra.Command {
@@ -30,10 +31,13 @@ func newConnectionsCmd() *cobra.Command {
 func newConnectionsListCmd() *cobra.Command {
 	var folderID int
 	var application string
+	var page, perPage int
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List connections",
+		Example: `  wk connections list
+  wk connections list --folder 123 --application salesforce --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -44,7 +48,10 @@ func newConnectionsListCmd() *cobra.Command {
 				return err
 			}
 
-			opts := &api.ConnectionListOptions{}
+			opts := &api.ConnectionListOptions{
+				Page:    page,
+				PerPage: perPage,
+			}
 			if cmd.Flags().Changed("folder") {
 				opts.FolderID = &folderID
 			}
@@ -64,10 +71,6 @@ func newConnectionsListCmd() *cobra.Command {
 				conns = filtered
 			}
 
-			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, conns)
-			}
-
 			headers := []string{"ID", "NAME", "APPLICATION", "FOLDER", "STATUS"}
 			var rows [][]string
 			for _, c := range conns {
@@ -85,12 +88,15 @@ func newConnectionsListCmd() *cobra.Command {
 					status,
 				})
 			}
-			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(conns) == perPage}
+			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
 		},
 	}
 
 	cmd.Flags().IntVar(&folderID, "folder", 0, "Filter by folder ID")
 	cmd.Flags().StringVar(&application, "application", "", "Filter by application name")
+	cmd.Flags().IntVar(&page, "page", 0, "Page number")
+	cmd.Flags().IntVar(&perPage, "per-page", 0, "Items per page")
 	return cmd
 }
 
@@ -98,6 +104,8 @@ func newConnectionsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <id>",
 		Short: "Get connection details",
+		Example: `  wk connections get 456
+  wk connections get 456 --json`,
 		Args:  requireArgs(1, "connection ID is required, e.g.: wk connections get <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -146,6 +154,8 @@ func newConnectionsCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a connection",
+		Example: `  wk connections create --name "My Salesforce" --provider salesforce
+  wk connections create --name "My DB" --provider postgresql --folder 123 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -170,7 +180,7 @@ func newConnectionsCreateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, conn)
 			}
 
-			fmt.Fprintf(os.Stdout, "Created connection %q (ID: %d)\n", conn.Name, conn.ID)
+			fmt.Fprintf(os.Stderr, "Created connection %q (ID: %d)\n", conn.Name, conn.ID)
 			return nil
 		},
 	}
@@ -189,6 +199,7 @@ func newConnectionsUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <id>",
 		Short: "Update a connection",
+		Example: `  wk connections update 456 --name "Renamed Connection"`,
 		Args:  requireArgs(1, "connection ID is required, e.g.: wk connections update <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -214,7 +225,7 @@ func newConnectionsUpdateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, conn)
 			}
 
-			fmt.Fprintf(os.Stdout, "Connection %d updated\n", conn.ID)
+			fmt.Fprintf(os.Stderr, "Connection %d updated\n", conn.ID)
 			return nil
 		},
 	}
@@ -226,8 +237,9 @@ func newConnectionsUpdateCmd() *cobra.Command {
 
 func newConnectionsDeleteCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "delete <id>",
-		Short: "Delete a connection",
+		Use:     "delete <id>",
+		Short:   "Delete a connection",
+		Example: `  wk connections delete 456`,
 		Args:  requireArgs(1, "connection ID is required, e.g.: wk connections delete <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -244,7 +256,7 @@ func newConnectionsDeleteCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Connection %d deleted\n", id)
+			fmt.Fprintf(os.Stderr, "Connection %d deleted\n", id)
 			return nil
 		},
 	}
@@ -252,8 +264,9 @@ func newConnectionsDeleteCmd() *cobra.Command {
 
 func newConnectionsDisconnectCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "disconnect <id>",
-		Short: "Disconnect a connection",
+		Use:     "disconnect <id>",
+		Short:   "Disconnect a connection",
+		Example: `  wk connections disconnect 456`,
 		Args:  requireArgs(1, "connection ID is required, e.g.: wk connections disconnect <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -270,7 +283,7 @@ func newConnectionsDisconnectCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Connection %d disconnected\n", id)
+			fmt.Fprintf(os.Stderr, "Connection %d disconnected\n", id)
 			return nil
 		},
 	}

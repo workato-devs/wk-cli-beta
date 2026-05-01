@@ -24,6 +24,8 @@ func newMCPTestCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "test <url>",
 		Short: "Test MCP server connectivity",
+		Example: `  wk mcp test https://app.workato.com/mcp/abcdef
+  wk mcp test https://app.workato.com/mcp/abcdef --json`,
 		Args:  requireArgs(1, "server URL is required, e.g.: wk mcp test <url>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -57,6 +59,8 @@ func newMCPToolsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tools <url>",
 		Short: "List tools exposed by an MCP server",
+		Example: `  wk mcp tools https://app.workato.com/mcp/abcdef
+  wk mcp tools https://app.workato.com/mcp/abcdef --json`,
 		Args:  requireArgs(1, "server URL is required, e.g.: wk mcp tools <url>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -88,7 +92,7 @@ func newMCPToolsCmd() *cobra.Command {
 				rows = append(rows, []string{t.Name, desc})
 			}
 
-			fmt.Fprintf(os.Stdout, "%d tools available\n\n", len(tools))
+			fmt.Fprintf(os.Stderr, "%d tools available\n\n", len(tools))
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
 		},
 	}

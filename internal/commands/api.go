@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
+	"github.com/workato-devs/wk-cli-beta/internal/output"
 )
 
 func newAPICmd() *cobra.Command {
@@ -38,6 +39,8 @@ func newAPICollectionsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List API collections",
+		Example: `  wk api collections list
+  wk api collections list --page 1 --per-page 20 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -54,10 +57,6 @@ func newAPICollectionsListCmd() *cobra.Command {
 				return err
 			}
 
-			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, collections)
-			}
-
 			headers := []string{"ID", "NAME", "HANDLE", "VERSION", "DESCRIPTION", "PROJECT ID"}
 			var rows [][]string
 			for _, c := range collections {
@@ -70,7 +69,8 @@ func newAPICollectionsListCmd() *cobra.Command {
 					strconv.Itoa(c.ProjectID),
 				})
 			}
-			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(collections) == perPage}
+			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
 		},
 	}
 
@@ -86,6 +86,7 @@ func newAPICollectionsCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an API collection",
+		Example: `  wk api collections create --name "Customer API" --project 123 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -105,7 +106,7 @@ func newAPICollectionsCreateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, collection)
 			}
 
-			fmt.Fprintf(os.Stdout, "Created API collection %q (ID: %d)\n", collection.Name, collection.ID)
+			fmt.Fprintf(os.Stderr, "Created API collection %q (ID: %d)\n", collection.Name, collection.ID)
 			return nil
 		},
 	}
@@ -135,6 +136,8 @@ func newAPIEndpointsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List API endpoints",
+		Example: `  wk api endpoints list
+  wk api endpoints list --collection 42 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -156,10 +159,6 @@ func newAPIEndpointsListCmd() *cobra.Command {
 				return err
 			}
 
-			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, endpoints)
-			}
-
 			headers := []string{"ID", "NAME", "METHOD", "PATH", "RECIPE ID", "COLLECTION ID", "ACTIVE"}
 			var rows [][]string
 			for _, e := range endpoints {
@@ -177,7 +176,8 @@ func newAPIEndpointsListCmd() *cobra.Command {
 					active,
 				})
 			}
-			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(endpoints) == perPage}
+			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
 		},
 	}
 
@@ -189,8 +189,9 @@ func newAPIEndpointsListCmd() *cobra.Command {
 
 func newAPIEndpointsEnableCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "enable <id>",
-		Short: "Enable an API endpoint",
+		Use:     "enable <id>",
+		Short:   "Enable an API endpoint",
+		Example: `  wk api endpoints enable 789`,
 		Args:  requireArgs(1, "endpoint ID is required, e.g.: wk api endpoints enable <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -207,7 +208,7 @@ func newAPIEndpointsEnableCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Endpoint %d enabled\n", id)
+			fmt.Fprintf(os.Stderr, "Endpoint %d enabled\n", id)
 			return nil
 		},
 	}
@@ -215,8 +216,9 @@ func newAPIEndpointsEnableCmd() *cobra.Command {
 
 func newAPIEndpointsDisableCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "disable <id>",
-		Short: "Disable an API endpoint",
+		Use:     "disable <id>",
+		Short:   "Disable an API endpoint",
+		Example: `  wk api endpoints disable 789`,
 		Args:  requireArgs(1, "endpoint ID is required, e.g.: wk api endpoints disable <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -233,7 +235,7 @@ func newAPIEndpointsDisableCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Endpoint %d disabled\n", id)
+			fmt.Fprintf(os.Stderr, "Endpoint %d disabled\n", id)
 			return nil
 		},
 	}
@@ -257,6 +259,8 @@ func newSkillsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List agentic skills",
+		Example: `  wk api skills list
+  wk api skills list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -273,10 +277,6 @@ func newSkillsListCmd() *cobra.Command {
 				return err
 			}
 
-			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, skills)
-			}
-
 			headers := []string{"ID", "NAME", "DESCRIPTION", "RECIPE ID", "FOLDER ID", "PROJECT ID"}
 			var rows [][]string
 			for _, s := range skills {
@@ -289,7 +289,8 @@ func newSkillsListCmd() *cobra.Command {
 					strconv.Itoa(s.ProjectID),
 				})
 			}
-			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(skills) == perPage}
+			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
 		},
 	}
 
@@ -302,6 +303,7 @@ func newSkillsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <id>",
 		Short: "Get an agentic skill by ID",
+		Example: `  wk api skills get 42 --json`,
 		Args:  requireArgs(1, "skill ID is required, e.g.: wk api skills get <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -347,6 +349,7 @@ func newSkillsCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an agentic skill from a recipe",
+		Example: `  wk api skills create --recipe-id 12345 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -366,7 +369,7 @@ func newSkillsCreateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, skill)
 			}
 
-			fmt.Fprintf(os.Stdout, "Created skill %q (ID: %d)\n", skill.Name, skill.ID)
+			fmt.Fprintf(os.Stderr, "Created skill %q (ID: %d)\n", skill.Name, skill.ID)
 			return nil
 		},
 	}

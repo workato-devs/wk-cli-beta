@@ -28,6 +28,8 @@ func newFoldersListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List folders",
+		Example: `  wk folders list
+  wk folders list --parent 123 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -79,6 +81,8 @@ func newFoldersCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a folder",
+		Example: `  wk folders create "Marketing Recipes"
+  wk folders create "Subfolder" --parent 123 --json`,
 		Args:  requireArgs(1, "folder name is required, e.g.: wk folders create <name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -104,7 +108,7 @@ func newFoldersCreateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, folder)
 			}
 
-			fmt.Fprintf(os.Stdout, "Created folder %q (ID: %d)\n", folder.Name, folder.ID)
+			fmt.Fprintf(os.Stderr, "Created folder %q (ID: %d)\n", folder.Name, folder.ID)
 			return nil
 		},
 	}
@@ -117,6 +121,7 @@ func newFoldersDeleteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete <id>",
 		Short: "Delete a folder or project",
+		Example: `  wk folders delete 123`,
 		Long: `Delete a top-level Workato project or a nested folder. The Workato
 API uses separate endpoints — DELETE /projects/{id} for projects
 (is_project=true), DELETE /folders/{id} for plain folders. This
@@ -160,14 +165,14 @@ endpoint based on the target's is_project flag.`,
 				if err := client.Folders().DeleteProject(cmd.Context(), match.ProjectID); err != nil {
 					return err
 				}
-				fmt.Fprintf(os.Stdout, "Project %d deleted (project_id=%d)\n", id, match.ProjectID)
+				fmt.Fprintf(os.Stderr, "Project %d deleted (project_id=%d)\n", id, match.ProjectID)
 				return nil
 			}
 
 			if err := client.Folders().Delete(cmd.Context(), id); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "Folder %d deleted\n", id)
+			fmt.Fprintf(os.Stderr, "Folder %d deleted\n", id)
 			return nil
 		},
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
+	"github.com/workato-devs/wk-cli-beta/internal/output"
 )
 
 func newTagsCmd() *cobra.Command {
@@ -28,10 +29,13 @@ func newTagsCmd() *cobra.Command {
 
 func newTagsListCmd() *cobra.Command {
 	var search string
+	var page, perPage int
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List tags",
+		Example: `  wk tags list
+  wk tags list --search "deploy" --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -42,14 +46,10 @@ func newTagsListCmd() *cobra.Command {
 				return err
 			}
 
-			opts := &api.TagListOptions{Search: search}
+			opts := &api.TagListOptions{Search: search, Page: page, PerPage: perPage}
 			tags, err := client.Tags().List(cmd.Context(), opts)
 			if err != nil {
 				return err
-			}
-
-			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, tags)
 			}
 
 			headers := []string{"HANDLE", "TITLE", "DESCRIPTION", "COLOR"}
@@ -57,11 +57,14 @@ func newTagsListCmd() *cobra.Command {
 			for _, t := range tags {
 				rows = append(rows, []string{t.Handle, t.Title, t.Description, t.Color})
 			}
-			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(tags) == perPage}
+			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
 		},
 	}
 
 	cmd.Flags().StringVar(&search, "search", "", "Search tags by name")
+	cmd.Flags().IntVar(&page, "page", 0, "Page number")
+	cmd.Flags().IntVar(&perPage, "per-page", 0, "Items per page")
 	return cmd
 }
 
@@ -71,6 +74,8 @@ func newTagsCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <title>",
 		Short: "Create a tag",
+		Example: `  wk tags create "production" --color blue
+  wk tags create "staging" --description "Pre-prod environment" --json`,
 		Args:  requireArgs(1, "tag title is required, e.g.: wk tags create <title>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -91,7 +96,7 @@ func newTagsCreateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, tag)
 			}
 
-			fmt.Fprintf(os.Stdout, "Created tag %q (handle: %s)\n", tag.Title, tag.Handle)
+			fmt.Fprintf(os.Stderr, "Created tag %q (handle: %s)\n", tag.Title, tag.Handle)
 			return nil
 		},
 	}
@@ -107,6 +112,7 @@ func newTagsUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <handle>",
 		Short: "Update a tag",
+		Example: `  wk tags update production --title "Production" --color green`,
 		Args:  requireArgs(1, "tag handle is required, e.g.: wk tags update <handle>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -138,7 +144,7 @@ func newTagsUpdateCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, tag)
 			}
 
-			fmt.Fprintf(os.Stdout, "Tag %q updated\n", tag.Handle)
+			fmt.Fprintf(os.Stderr, "Tag %q updated\n", tag.Handle)
 			return nil
 		},
 	}
@@ -151,8 +157,9 @@ func newTagsUpdateCmd() *cobra.Command {
 
 func newTagsDeleteCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "delete <handle>",
-		Short: "Delete a tag",
+		Use:     "delete <handle>",
+		Short:   "Delete a tag",
+		Example: `  wk tags delete staging`,
 		Args:  requireArgs(1, "tag handle is required, e.g.: wk tags delete <handle>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -164,7 +171,7 @@ func newTagsDeleteCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Tag %q deleted\n", args[0])
+			fmt.Fprintf(os.Stderr, "Tag %q deleted\n", args[0])
 			return nil
 		},
 	}
@@ -176,6 +183,8 @@ func newTagsApplyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apply <handle>",
 		Short: "Apply a tag to recipes or connections",
+		Example: `  wk tags apply production --to recipe:123
+  wk tags apply production --to recipe:123,connection:456`,
 		Args:  requireArgs(1, "tag handle is required, e.g.: wk tags apply <handle> --to recipe:123"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -192,7 +201,7 @@ func newTagsApplyCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Tag %q applied\n", args[0])
+			fmt.Fprintf(os.Stderr, "Tag %q applied\n", args[0])
 			return nil
 		},
 	}
@@ -208,6 +217,7 @@ func newTagsRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remove <handle>",
 		Short: "Remove a tag from recipes or connections",
+		Example: `  wk tags remove staging --from recipe:123`,
 		Args:  requireArgs(1, "tag handle is required, e.g.: wk tags remove <handle> --from recipe:123"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -224,7 +234,7 @@ func newTagsRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Tag %q removed\n", args[0])
+			fmt.Fprintf(os.Stderr, "Tag %q removed\n", args[0])
 			return nil
 		},
 	}

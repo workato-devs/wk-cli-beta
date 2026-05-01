@@ -15,6 +15,8 @@ func newLinkCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "link",
 		Short: "Link the current project to an auth profile",
+		Example: `  wk link --profile us-acme-prod
+  wk link --profile eu-acme-dev --json`,
 		Long: `Update the auth profile recorded in .wk/wk.toml for the current project.
 Run from anywhere inside a wk project tree; the command walks upward to
 locate .wk/wk.toml.`,

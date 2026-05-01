@@ -2,6 +2,18 @@ package errors
 
 import "errors"
 
+// Exit codes returned by the CLI process. Agents and scripts can switch
+// on these to distinguish error categories without parsing stderr text.
+const (
+	ExitOK         = 0
+	ExitGeneral    = 1
+	ExitValidation = 2
+	ExitAuth       = 3
+	ExitNoProject  = 4
+	ExitAPI        = 5
+	ExitPlugin     = 6
+)
+
 // Sentinel errors for the wk CLI.
 var (
 	// Auth errors
