@@ -58,7 +58,7 @@ func newTagsListCmd() *cobra.Command {
 				rows = append(rows, []string{t.Handle, t.Title, t.Description, t.Color})
 			}
 			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(tags) == perPage}
-			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
+			return rctx.Formatter.FormatPage(os.Stdout, tags, headers, rows, meta)
 		},
 	}
 

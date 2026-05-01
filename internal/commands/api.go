@@ -70,7 +70,7 @@ func newAPICollectionsListCmd() *cobra.Command {
 				})
 			}
 			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(collections) == perPage}
-			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
+			return rctx.Formatter.FormatPage(os.Stdout, collections, headers, rows, meta)
 		},
 	}
 
@@ -177,7 +177,7 @@ func newAPIEndpointsListCmd() *cobra.Command {
 				})
 			}
 			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(endpoints) == perPage}
-			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
+			return rctx.Formatter.FormatPage(os.Stdout, endpoints, headers, rows, meta)
 		},
 	}
 
@@ -290,7 +290,7 @@ func newSkillsListCmd() *cobra.Command {
 				})
 			}
 			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(skills) == perPage}
-			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
+			return rctx.Formatter.FormatPage(os.Stdout, skills, headers, rows, meta)
 		},
 	}
 

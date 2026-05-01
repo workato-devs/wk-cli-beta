@@ -91,7 +91,7 @@ func newRecipesListCmd() *cobra.Command {
 				})
 			}
 			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(recipes) == perPage}
-			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
+			return rctx.Formatter.FormatPage(os.Stdout, recipes, headers, rows, meta)
 		},
 	}
 

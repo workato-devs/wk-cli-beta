@@ -89,7 +89,7 @@ func newConnectionsListCmd() *cobra.Command {
 				})
 			}
 			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(conns) == perPage}
-			return rctx.Formatter.FormatPage(os.Stdout, headers, rows, meta)
+			return rctx.Formatter.FormatPage(os.Stdout, conns, headers, rows, meta)
 		},
 	}
 

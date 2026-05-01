@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 )
 
 // Registry manages installed plugins on disk at ~/.wk/plugins/.
@@ -92,7 +94,7 @@ func (r *Registry) List() ([]InstalledPlugin, error) {
 func (r *Registry) Remove(name string) error {
 	dir := filepath.Join(r.Dir, name)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return fmt.Errorf("plugin %q is not installed", name)
+		return wkerrors.WithSentinel(wkerrors.ErrPluginNotFound, "plugin %q is not installed", name)
 	}
 	return os.RemoveAll(dir)
 }
@@ -101,7 +103,7 @@ func (r *Registry) Remove(name string) error {
 func (r *Registry) GetPluginDir(name string) (string, error) {
 	dir := filepath.Join(r.Dir, name)
 	if _, err := os.Stat(filepath.Join(dir, "plugin.toml")); err != nil {
-		return "", fmt.Errorf("plugin %q is not installed", name)
+		return "", wkerrors.WithSentinel(wkerrors.ErrPluginNotFound, "plugin %q is not installed", name)
 	}
 	return dir, nil
 }

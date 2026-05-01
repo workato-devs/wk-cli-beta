@@ -1,6 +1,9 @@
 package errors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Exit codes returned by the CLI process. Agents and scripts can switch
 // on these to distinguish error categories without parsing stderr text.
@@ -47,3 +50,15 @@ var (
 	ErrAPIRateLimit    = errors.New("API rate limit exceeded (429)")
 	ErrAPIServer       = errors.New("API server error (5xx)")
 )
+
+type coded struct {
+	msg      string
+	sentinel error
+}
+
+func (e *coded) Error() string  { return e.msg }
+func (e *coded) Unwrap() error  { return e.sentinel }
+
+func WithSentinel(sentinel error, format string, args ...any) error {
+	return &coded{msg: fmt.Sprintf(format, args...), sentinel: sentinel}
+}

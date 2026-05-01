@@ -8,10 +8,11 @@ type Formatter interface {
 	Format(w io.Writer, data any) error
 	// FormatList writes tabular data with headers and rows.
 	FormatList(w io.Writer, headers []string, rows [][]string) error
-	// FormatPage writes a paginated list response. In JSON mode the items
-	// are wrapped with pagination metadata; in text mode it delegates to
-	// FormatList (the metadata is only useful for machine consumers).
-	FormatPage(w io.Writer, headers []string, rows [][]string, meta PageMeta) error
+	// FormatPage writes a paginated list response. In JSON mode, data
+	// (the native API structs) is wrapped with pagination metadata; in
+	// text mode it renders headers+rows as a table. This preserves native
+	// field names, types, and omitted fields in JSON output.
+	FormatPage(w io.Writer, data any, headers []string, rows [][]string, meta PageMeta) error
 }
 
 // PageMeta carries pagination context so agents can iterate through
