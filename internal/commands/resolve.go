@@ -10,6 +10,7 @@ import (
 	"github.com/workato-devs/wk-cli-beta/internal/api"
 	"github.com/workato-devs/wk-cli-beta/internal/auth"
 	"github.com/workato-devs/wk-cli-beta/internal/config"
+	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 )
 
 // resolveAPIClient builds an authenticated API client from the active profile
@@ -341,10 +342,9 @@ func checkProfileMatch(cfg *config.Config, profileName string) error {
 		return nil
 	}
 	hint := profileSwitchHint(cfg.Profile)
-	return fmt.Errorf(
+	return wkerrors.WithSentinel(wkerrors.ErrProfileMismatch,
 		"active profile %q does not match project profile %q\n%s",
-		profileName, cfg.Profile, hint,
-	)
+		profileName, cfg.Profile, hint)
 }
 
 // profileSwitchHint returns a one-line actionable hint telling the user how

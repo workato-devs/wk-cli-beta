@@ -22,6 +22,8 @@ func newConnectorsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List custom SDK connectors",
+		Example: `  wk connectors list
+  wk connectors list --search salesforce --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {

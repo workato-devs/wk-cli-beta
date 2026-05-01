@@ -1,9 +1,12 @@
 package plugin
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 )
 
 func TestRegistryInstallListRemove(t *testing.T) {
@@ -57,7 +60,29 @@ func TestRegistryRemoveNotInstalled(t *testing.T) {
 	reg := &Registry{Dir: t.TempDir()}
 	err := reg.Remove("nonexistent")
 	if err == nil {
-		t.Error("expected error removing non-existent plugin")
+		t.Fatal("expected error removing non-existent plugin")
+	}
+	if !errors.Is(err, wkerrors.ErrPluginNotFound) {
+		t.Errorf("expected errors.Is(err, ErrPluginNotFound), got: %v", err)
+	}
+	want := `plugin "nonexistent" is not installed`
+	if err.Error() != want {
+		t.Errorf("Error() = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestRegistryGetPluginDirNotInstalled(t *testing.T) {
+	reg := &Registry{Dir: t.TempDir()}
+	_, err := reg.GetPluginDir("missing")
+	if err == nil {
+		t.Fatal("expected error for non-existent plugin")
+	}
+	if !errors.Is(err, wkerrors.ErrPluginNotFound) {
+		t.Errorf("expected errors.Is(err, ErrPluginNotFound), got: %v", err)
+	}
+	want := `plugin "missing" is not installed`
+	if err.Error() != want {
+		t.Errorf("Error() = %q, want %q", err.Error(), want)
 	}
 }
 

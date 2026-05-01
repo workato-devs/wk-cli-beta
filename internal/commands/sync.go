@@ -40,6 +40,8 @@ func newPullCmd() *cobra.Command {
 		Use:   "pull",
 		Short: "Pull remote assets to local project",
 		Long:  "Download assets from the Workato workspace into the local project directory.",
+		Example: `  wk pull
+  wk pull --folder "Marketing Recipes" --force --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -105,6 +107,10 @@ func newPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Push local changes to remote workspace",
+		Example: `  wk push
+  wk push --dry-run
+  wk push --force --skip-hooks --json
+  wk push --no-create  # CI: error if folder missing`,
 		Long: `Upload modified local assets to the Workato workspace.
 
 When an entry's server_path does not yet exist on the workspace, push
@@ -280,6 +286,8 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show sync status of the current project",
 		Long:  "Show which local files are new, modified, or deleted compared to the last pull.",
+		Example: `  wk status
+  wk status --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -333,6 +341,8 @@ func newDiffCmd() *cobra.Command {
 		Use:   "diff",
 		Short: "Show differences between local and remote",
 		Long:  "Compare local assets against the remote workspace to show what has changed.",
+		Example: `  wk diff
+  wk diff --folder "Marketing Recipes" --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {

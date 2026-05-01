@@ -21,6 +21,8 @@ func newCloneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clone <folder-name>",
 		Short: "Clone a remote folder into a new local project",
+		Example: `  wk clone "Marketing Recipes"
+  wk clone "Marketing Recipes" --local-path ./marketing --json`,
 		Long: `Initialize a new wk project and pull assets from the specified remote
 folder. Creates <local-path>/.wk/wk.toml and <local-path>/.wk/.gitignore
 (self-ignore; the project-root .gitignore is never touched), and caches

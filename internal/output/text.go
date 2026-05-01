@@ -23,3 +23,7 @@ func (f *TextFormatter) FormatList(w io.Writer, headers []string, rows [][]strin
 	}
 	return tw.Flush()
 }
+
+func (f *TextFormatter) FormatPage(w io.Writer, _ any, headers []string, rows [][]string, _ PageMeta) error {
+	return f.FormatList(w, headers, rows)
+}

@@ -30,10 +30,16 @@ func newPluginsInstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install <name-or-path>",
 		Short: "Install a plugin by name (from $PATH) or local path",
+		Example: `  wk plugins install recipe-lint
+  wk plugins install ./my-plugin --json`,
 		Args:  requireArgs(1, "plugin name or path is required, e.g.: wk plugins install recipe-lint"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			rctx, err := BuildRunContext(cmd)
+			if err != nil {
+				return err
+			}
+
 			source := args[0]
-			var err error
 
 			if !filepath.IsAbs(source) && !strings.Contains(source, string(filepath.Separator)) && source != "." && source != ".." {
 				binPath, lookErr := exec.LookPath(source)
@@ -52,7 +58,6 @@ func newPluginsInstallCmd() *cobra.Command {
 				return fmt.Errorf("resolving path: %w", err)
 			}
 
-			// Validate that plugin.toml exists at the source
 			manifestPath := filepath.Join(source, "plugin.toml")
 			if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
 				return fmt.Errorf("no plugin.toml found at %s", source)
@@ -68,10 +73,19 @@ func newPluginsInstallCmd() *cobra.Command {
 			}
 
 			m, _ := plugin.LoadManifest(manifestPath)
+			if flagJSON {
+				result := map[string]string{"status": "installed", "path": source}
+				if m != nil {
+					result["name"] = m.Name
+					result["version"] = m.Version
+				}
+				return rctx.Formatter.Format(os.Stdout, result)
+			}
+
 			if m != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "Installed plugin %q (v%s)\n", m.Name, m.Version)
+				fmt.Fprintf(os.Stderr, "Installed plugin %q (v%s)\n", m.Name, m.Version)
 			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "Plugin installed successfully.")
+				fmt.Fprintln(os.Stderr, "Plugin installed successfully.")
 			}
 			return nil
 		},
@@ -82,6 +96,8 @@ func newPluginsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List installed plugins",
+		Example: `  wk plugins list
+  wk plugins list --json`,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -100,7 +116,7 @@ func newPluginsListCmd() *cobra.Command {
 			}
 
 			if len(plugins) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No plugins installed.")
+				fmt.Fprintln(os.Stderr, "No plugins installed.")
 				return nil
 			}
 
@@ -109,7 +125,7 @@ func newPluginsListCmd() *cobra.Command {
 			for _, p := range plugins {
 				rows = append(rows, []string{p.Name, p.Version, p.Dir})
 			}
-			return rctx.Formatter.FormatList(cmd.OutOrStdout(), headers, rows)
+			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
 		},
 	}
 }
@@ -118,9 +134,15 @@ func newPluginsRemoveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <name>",
 		Short: "Remove an installed plugin",
+		Example: `  wk plugins remove recipe-lint`,
 		Args:  requireArgs(1, "plugin name is required, e.g.: wk plugins remove <name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
+
+			rctx, err := BuildRunContext(cmd)
+			if err != nil {
+				return err
+			}
 
 			registry, err := plugin.NewRegistry()
 			if err != nil {
@@ -131,7 +153,10 @@ func newPluginsRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed plugin %q\n", name)
+			if flagJSON {
+				return rctx.Formatter.Format(os.Stdout, map[string]string{"status": "removed", "name": name})
+			}
+			fmt.Fprintf(os.Stderr, "Removed plugin %q\n", name)
 			return nil
 		},
 	}

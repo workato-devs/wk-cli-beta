@@ -25,6 +25,8 @@ func newWorkspaceInfoCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "info",
 		Short: "Show current workspace info",
+		Example: `  wk workspace info
+  wk workspace info --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -58,6 +60,8 @@ func newWorkspaceUsersCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "users",
 		Short: "List workspace members",
+		Example: `  wk workspace users
+  wk workspace users --email admin@example.com --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -100,6 +104,8 @@ func newWorkspaceAuditLogCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "audit-log",
 		Short: "View workspace audit log",
+		Example: `  wk workspace audit-log
+  wk workspace audit-log --since 2026-01-01T00:00:00Z --action recipe.start --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {

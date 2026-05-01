@@ -14,6 +14,7 @@ import (
 	"github.com/workato-devs/wk-cli-beta/internal/api"
 	"github.com/workato-devs/wk-cli-beta/internal/auth"
 	"github.com/workato-devs/wk-cli-beta/internal/config"
+	wkerrors "github.com/workato-devs/wk-cli-beta/internal/errors"
 	"github.com/workato-devs/wk-cli-beta/internal/output"
 	"github.com/workato-devs/wk-cli-beta/internal/plugin"
 )
@@ -154,9 +155,43 @@ func Execute(ctx context.Context) int {
 			return exitErr.Code
 		}
 		os.Stderr.WriteString("Error: " + err.Error() + "\n")
-		return 1
+		return classifyError(err)
 	}
 	return 0
+}
+
+// classifyError maps an error to a semantic exit code so agents and
+// scripts can distinguish error categories without parsing stderr.
+func classifyError(err error) int {
+	switch {
+	case errors.Is(err, wkerrors.ErrNoActiveProfile),
+		errors.Is(err, wkerrors.ErrProfileNotFound),
+		errors.Is(err, wkerrors.ErrCredentialNotFound),
+		errors.Is(err, wkerrors.ErrTokenExpired),
+		errors.Is(err, wkerrors.ErrProfileMismatch),
+		errors.Is(err, wkerrors.ErrDuplicateTarget),
+		errors.Is(err, wkerrors.ErrAPIUnauthorized),
+		errors.Is(err, wkerrors.ErrAPIForbidden):
+		return wkerrors.ExitAuth
+
+	case errors.Is(err, wkerrors.ErrNotInProject),
+		errors.Is(err, wkerrors.ErrProjectExists),
+		errors.Is(err, wkerrors.ErrNestedProject):
+		return wkerrors.ExitNoProject
+
+	case errors.Is(err, wkerrors.ErrAPINotFound),
+		errors.Is(err, wkerrors.ErrAPIRateLimit),
+		errors.Is(err, wkerrors.ErrAPIServer):
+		return wkerrors.ExitAPI
+
+	case errors.Is(err, wkerrors.ErrPluginNotFound),
+		errors.Is(err, wkerrors.ErrPluginTimeout),
+		errors.Is(err, wkerrors.ErrPluginProtocol):
+		return wkerrors.ExitPlugin
+
+	default:
+		return wkerrors.ExitGeneral
+	}
 }
 
 // registerAllCommands wires all command groups into the root command.

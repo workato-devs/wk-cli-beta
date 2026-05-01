@@ -12,6 +12,7 @@ import (
 
 	"github.com/workato-devs/wk-cli-beta/internal/api"
 	"github.com/workato-devs/wk-cli-beta/internal/config"
+	"github.com/workato-devs/wk-cli-beta/internal/output"
 	"github.com/workato-devs/wk-cli-beta/internal/plugin"
 	"github.com/workato-devs/wk-cli-beta/internal/sync"
 )
@@ -41,10 +42,14 @@ func newRecipesCmd() *cobra.Command {
 func newRecipesListCmd() *cobra.Command {
 	var folderID int
 	var status string
+	var page, perPage int
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List recipes",
+		Example: `  wk recipes list
+  wk recipes list --folder 123 --status running
+  wk recipes list --json --page 1 --per-page 50`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -56,7 +61,9 @@ func newRecipesListCmd() *cobra.Command {
 			}
 
 			opts := &api.RecipeListOptions{
-				Status: status,
+				Status:  status,
+				Page:    page,
+				PerPage: perPage,
 			}
 			if cmd.Flags().Changed("folder") {
 				opts.FolderID = &folderID
@@ -65,10 +72,6 @@ func newRecipesListCmd() *cobra.Command {
 			recipes, err := client.Recipes().List(cmd.Context(), opts)
 			if err != nil {
 				return err
-			}
-
-			if flagJSON {
-				return rctx.Formatter.Format(os.Stdout, recipes)
 			}
 
 			headers := []string{"ID", "NAME", "DESCRIPTION", "FOLDER", "RUNNING", "VERSION"}
@@ -87,12 +90,15 @@ func newRecipesListCmd() *cobra.Command {
 					strconv.Itoa(r.Version),
 				})
 			}
-			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			meta := output.PageMeta{Page: page, PerPage: perPage, HasNext: perPage > 0 && len(recipes) == perPage}
+			return rctx.Formatter.FormatPage(os.Stdout, recipes, headers, rows, meta)
 		},
 	}
 
 	cmd.Flags().IntVar(&folderID, "folder", 0, "Filter by folder ID")
 	cmd.Flags().StringVar(&status, "status", "all", "Filter by status (running, stopped, all)")
+	cmd.Flags().IntVar(&page, "page", 0, "Page number")
+	cmd.Flags().IntVar(&perPage, "per-page", 0, "Items per page")
 	return cmd
 }
 
@@ -100,6 +106,8 @@ func newRecipesGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <id>",
 		Short: "Get recipe details",
+		Example: `  wk recipes get 12345
+  wk recipes get 12345 --json`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes get <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -147,6 +155,8 @@ func newRecipesStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start <id>",
 		Short: "Start a recipe",
+		Example: `  wk recipes start 12345
+  wk recipes start 12345 --no-wait`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes start <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -164,7 +174,7 @@ func newRecipesStartCmd() *cobra.Command {
 			}
 
 			if noWait {
-				fmt.Fprintf(os.Stdout, "Recipe %d start requested\n", id)
+				fmt.Fprintf(os.Stderr, "Recipe %d start requested\n", id)
 				return nil
 			}
 
@@ -183,7 +193,7 @@ func newRecipesStartCmd() *cobra.Command {
 					return fmt.Errorf("checking recipe status: %w", err)
 				}
 				if recipe.Running && recipe.Active {
-					fmt.Fprintf(os.Stdout, "Recipe %d started and active\n", id)
+					fmt.Fprintf(os.Stderr, "Recipe %d started and active\n", id)
 					return nil
 				}
 				time.Sleep(interval)
@@ -200,8 +210,9 @@ func newRecipesStartCmd() *cobra.Command {
 
 func newRecipesStopCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "stop <id>",
-		Short: "Stop a recipe",
+		Use:     "stop <id>",
+		Short:   "Stop a recipe",
+		Example: `  wk recipes stop 12345`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes stop <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -218,7 +229,7 @@ func newRecipesStopCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Recipe %d stopped\n", id)
+			fmt.Fprintf(os.Stderr, "Recipe %d stopped\n", id)
 			return nil
 		},
 	}
@@ -230,6 +241,8 @@ func newRecipesExportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export <id>",
 		Short: "Export a recipe as JSON",
+		Example: `  wk recipes export 12345
+  wk recipes export 12345 -o recipe.json`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes export <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -251,7 +264,7 @@ func newRecipesExportCmd() *cobra.Command {
 				if err := os.WriteFile(outputFile, data, 0644); err != nil {
 					return fmt.Errorf("writing file: %w", err)
 				}
-				fmt.Fprintf(os.Stdout, "Recipe %d exported to %s\n", id, outputFile)
+				fmt.Fprintf(os.Stderr, "Recipe %d exported to %s\n", id, outputFile)
 				return nil
 			}
 
@@ -270,6 +283,8 @@ func newRecipesImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import <path>",
 		Short: "Import a recipe from JSON file",
+		Example: `  wk recipes import recipe.json --folder 123
+  wk recipes import recipe.json --json`,
 		Args:  requireArgs(1, "file path is required, e.g.: wk recipes import <path>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -317,6 +332,8 @@ func newRecipesJobsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "jobs <id>",
 		Short: "List recipe jobs",
+		Example: `  wk recipes jobs 12345
+  wk recipes jobs 12345 --status failed --limit 10 --json`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes jobs <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -380,6 +397,8 @@ func newRecipesCopyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "copy <id>",
 		Short: "Copy a recipe to a folder",
+		Example: `  wk recipes copy 12345 --to-folder 678
+  wk recipes copy 12345 --to-folder 678 --json`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes copy <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
@@ -405,7 +424,7 @@ func newRecipesCopyCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, recipe)
 			}
 
-			fmt.Fprintf(os.Stdout, "Recipe %d copied to folder %d, new ID: %d\n", id, toFolder, recipe.ID)
+			fmt.Fprintf(os.Stderr, "Recipe %d copied to folder %d, new ID: %d\n", id, toFolder, recipe.ID)
 			return nil
 		},
 	}
@@ -422,6 +441,7 @@ func newRecipesConnectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-connection <id>",
 		Short: "Update a recipe's connection",
+		Example: `  wk recipes update-connection 12345 --adapter salesforce --connection 678`,
 		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes update-connection <id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -438,7 +458,7 @@ func newRecipesConnectCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Recipe %d connection updated\n", id)
+			fmt.Fprintf(os.Stderr, "Recipe %d connection updated\n", id)
 			return nil
 		},
 	}
@@ -462,6 +482,7 @@ func newRecipesUpdateCmd() *cobra.Command {
 		Long: `Replace an existing recipe's code/config with the contents of a local JSON
 file via PUT /api/recipes/:id. The recipe must be stopped — the API rejects
 updates to running recipes. Use "wk recipes stop <id>" first if needed.`,
+		Example: `  wk recipes update 12345 recipe.json`,
 		Args: requireArgs(2, "recipe ID and file path are required, e.g.: wk recipes update <id> <path>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -492,10 +513,10 @@ updates to running recipes. Use "wk recipes stop <id>" first if needed.`,
 			updated, gerr := client.Recipes().Get(cmd.Context(), id)
 			if gerr != nil {
 				// Update succeeded; we just can't show the new version number.
-				fmt.Fprintf(os.Stdout, "Recipe %d updated\n", id)
+				fmt.Fprintf(os.Stderr, "Recipe %d updated\n", id)
 				return nil
 			}
-			fmt.Fprintf(os.Stdout, "Recipe %d updated (version %d)\n", id, updated.Version)
+			fmt.Fprintf(os.Stderr, "Recipe %d updated (version %d)\n", id, updated.Version)
 			return nil
 		},
 	}
@@ -535,6 +556,8 @@ Use --local-only to skip the server delete and only clean up local files.
 
 Pure-offline variant: "wk recipes delete --name <name> --local-only"
 does no API call at all and is safe when the recipe is already gone.`,
+		Example: `  wk recipes delete 12345
+  wk recipes delete --name "New lead sync" --local-only`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if flagByName == "" && len(args) == 0 {
@@ -605,17 +628,17 @@ does no API call at all and is safe when the recipe is already gone.`,
 				if len(removed) == 0 {
 					return fmt.Errorf("no local files found for recipe name %q", recipeName)
 				}
-				fmt.Fprintf(os.Stdout, "Recipe %q: removed %d local file(s)\n", recipeName, len(removed))
+				fmt.Fprintf(os.Stderr, "Recipe %q: removed %d local file(s)\n", recipeName, len(removed))
 				for _, p := range removed {
-					fmt.Fprintf(os.Stdout, "  %s\n", p)
+					fmt.Fprintf(os.Stderr, "  %s\n", p)
 				}
 				return nil
 			}
 
 			if len(removed) > 0 {
-				fmt.Fprintf(os.Stdout, "Recipe %d (%q) deleted (also removed %d local file(s))\n", id, recipeName, len(removed))
+				fmt.Fprintf(os.Stderr, "Recipe %d (%q) deleted (also removed %d local file(s))\n", id, recipeName, len(removed))
 			} else {
-				fmt.Fprintf(os.Stdout, "Recipe %d (%q) deleted\n", id, recipeName)
+				fmt.Fprintf(os.Stderr, "Recipe %d (%q) deleted\n", id, recipeName)
 			}
 			return nil
 		},
@@ -728,6 +751,8 @@ func newRecipesVersionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "versions <recipe_id>",
 		Short: "Manage recipe version history",
+		Example: `  wk recipes versions 12345
+  wk recipes versions 12345 --json`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  runRecipesVersionsList,
 	}
@@ -778,8 +803,9 @@ func runRecipesVersionsList(cmd *cobra.Command, args []string) error {
 
 func newRecipesVersionsCommentCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "comment <recipe_id> <version_id> <comment>",
-		Short: "Set or update the comment on a recipe version",
+		Use:     "comment <recipe_id> <version_id> <comment>",
+		Short:   "Set or update the comment on a recipe version",
+		Example: `  wk recipes versions comment 12345 42 "Fixed connection timeout"`,
 		Args:  requireArgs(3, "recipe ID, version ID, and comment are required, e.g.: wk recipes versions comment <recipe_id> <version_id> <comment>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := resolveAPIClient(cmd)
@@ -802,7 +828,7 @@ func newRecipesVersionsCommentCmd() *cobra.Command {
 			if _, err := client.Recipes().UpdateVersionComment(cmd.Context(), recipeID, versionID, comment); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "Version %d comment updated\n", versionID)
+			fmt.Fprintf(os.Stderr, "Version %d comment updated\n", versionID)
 			return nil
 		},
 	}
@@ -819,6 +845,8 @@ func newRecipeValidateCmd() *cobra.Command {
 
 This is an alias for "wk lint" — it uses the same tiered validation engine.
 The recipe-lint plugin must be installed (wk plugins install <path>).`,
+		Example: `  wk recipes validate ./recipes/
+  wk recipes validate my-recipe.recipe.json --tiers 0,1 --json`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reg, err := plugin.NewRegistry()

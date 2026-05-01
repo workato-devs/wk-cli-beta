@@ -51,6 +51,14 @@ environment when --name is omitted.
 
 Non-interactive mode (detected via --json, --no-input, or a non-TTY stdin)
 requires --token and --environment explicitly. See ADR-006.`,
+		Example: `  # Interactive login (prompts for token and environment)
+  wk auth login
+
+  # Non-interactive login for CI/CD
+  wk auth login --token wrk_abc123 --environment prod --no-input
+
+  # Login with explicit region and name
+  wk auth login --token wrk_abc123 --environment dev --region eu --name eu-acme-dev`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			interactive := isInteractiveStdin() && !noInput && !flagJSON
 			reader := bufio.NewReader(os.Stdin)
@@ -194,7 +202,7 @@ requires --token and --environment explicitly. See ADR-006.`,
 					return fmt.Errorf("setting active profile: %w", err)
 				}
 
-				fmt.Fprintf(os.Stdout, "Profile %q saved and set as active (workspace: %s, environment: %s, region: %s)\n",
+				fmt.Fprintf(os.Stderr, "Profile %q saved and set as active (workspace: %s, environment: %s, region: %s)\n",
 					name, workspace, environment, region)
 
 			case string(auth.StoreFile):
@@ -210,7 +218,7 @@ requires --token and --environment explicitly. See ADR-006.`,
 					return err
 				}
 
-				fmt.Fprintf(os.Stdout, "Profile %q written to %s (workspace: %s, environment: %s, region: %s)\n",
+				fmt.Fprintf(os.Stderr, "Profile %q written to %s (workspace: %s, environment: %s, region: %s)\n",
 					name, envPath, workspace, environment, region)
 
 			default:
@@ -273,6 +281,8 @@ func newAuthStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show active profile and test connectivity",
+		Example: `  wk auth status
+  wk auth status --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -363,8 +373,9 @@ func newAuthStatusCmd() *cobra.Command {
 
 func newAuthSwitchCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "switch <name>",
-		Short: "Switch active profile",
+		Use:     "switch <name>",
+		Short:   "Switch active profile",
+		Example: `  wk auth switch us-acme-prod`,
 		Args:  requireArgs(1, "profile name is required, e.g.: wk auth switch <name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -394,7 +405,7 @@ func newAuthSwitchCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(os.Stdout, "Switched to profile %q\n", name)
+			fmt.Fprintf(os.Stderr, "Switched to profile %q\n", name)
 
 			// When run inside a project directory, also rebind the project to
 			// the new profile: rewrite wk.toml's profile field and refresh
@@ -416,12 +427,12 @@ func newAuthSwitchCmd() *cobra.Command {
 							if err := config.Save(config.ProjectConfigPath(root), cfg); err != nil {
 								fmt.Fprintf(os.Stderr, "warning: updating wk.toml profile: %v\n", err)
 							} else {
-								fmt.Fprintf(os.Stdout, "Updated wk.toml: profile %q -> %q\n", prev, name)
+								fmt.Fprintf(os.Stderr, "Updated wk.toml: profile %q -> %q\n", prev, name)
 							}
 						} else if changedProfile {
-							fmt.Fprintf(os.Stdout, "Updated wk.toml: profile %q -> %q (snapshot refreshed)\n", prev, name)
+							fmt.Fprintf(os.Stderr, "Updated wk.toml: profile %q -> %q (snapshot refreshed)\n", prev, name)
 						} else if refreshed {
-							fmt.Fprintf(os.Stdout, "Refreshed wk.toml snapshot for profile %q\n", name)
+							fmt.Fprintf(os.Stderr, "Refreshed wk.toml snapshot for profile %q\n", name)
 						}
 					}
 				}
@@ -435,6 +446,8 @@ func newAuthListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all auth profiles",
+		Example: `  wk auth list
+  wk auth list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -504,8 +517,9 @@ func profileRow(p *auth.Profile, isActive, shadowed bool) []string {
 
 func newAuthDeleteCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "delete <name>",
-		Short: "Delete an auth profile and its stored credential",
+		Use:     "delete <name>",
+		Short:   "Delete an auth profile and its stored credential",
+		Example: `  wk auth delete us-acme-dev`,
 		Args:  requireArgs(1, "profile name is required, e.g.: wk auth delete <name>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -532,7 +546,7 @@ func newAuthDeleteCmd() *cobra.Command {
 				_ = pm.SetActiveProfile("")
 			}
 
-			fmt.Fprintf(os.Stdout, "Deleted profile %q (workspace: %s, environment: %s)\n",
+			fmt.Fprintf(os.Stderr, "Deleted profile %q (workspace: %s, environment: %s)\n",
 				profile.Name, profile.Workspace, profile.Environment)
 			return nil
 		},

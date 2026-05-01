@@ -27,3 +27,18 @@ func (f *JSONFormatter) FormatList(w io.Writer, headers []string, rows [][]strin
 	}
 	return f.Format(w, items)
 }
+
+func (f *JSONFormatter) FormatPage(w io.Writer, data any, _ []string, _ [][]string, meta PageMeta) error {
+	envelope := struct {
+		Items   any  `json:"items"`
+		Page    int  `json:"page"`
+		PerPage int  `json:"per_page"`
+		HasNext bool `json:"has_next"`
+	}{
+		Items:   data,
+		Page:    meta.Page,
+		PerPage: meta.PerPage,
+		HasNext: meta.HasNext,
+	}
+	return f.Format(w, envelope)
+}
