@@ -90,6 +90,13 @@ type APIEndpointService interface {
 	Disable(ctx context.Context, id int) error
 }
 
+// SkillService defines operations on agentic skills.
+type SkillService interface {
+	List(ctx context.Context, opts *PaginationOptions) ([]Skill, error)
+	Get(ctx context.Context, id int) (*Skill, error)
+	Create(ctx context.Context, recipeID int) (*Skill, error)
+}
+
 // WorkspaceService defines operations on workspace management.
 type WorkspaceService interface {
 	GetCurrentWorkspace(ctx context.Context) (*WorkspaceInfo, error)
@@ -111,6 +118,7 @@ type Client interface {
 	Tags() TagService
 	APICollections() APICollectionService
 	APIEndpoints() APIEndpointService
+	Skills() SkillService
 	Workspace() WorkspaceService
 	Connectors() ConnectorService
 }
