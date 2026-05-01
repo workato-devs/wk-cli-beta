@@ -147,6 +147,16 @@ type APIEndpoint struct {
 	RecipeID        int    `json:"recipe_id,omitempty"`
 }
 
+// Skill represents a Workato agentic skill.
+type Skill struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	RecipeID    int    `json:"recipe_id"`
+	FolderID    int    `json:"folder_id"`
+	ProjectID   int    `json:"project_id"`
+}
+
 // PaginationOptions provides generic pagination parameters.
 type PaginationOptions struct {
 	Page    int

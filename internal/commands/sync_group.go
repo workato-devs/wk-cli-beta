@@ -15,11 +15,13 @@ local directory inside the project container. Push and pull transfer
 content; the commands here manage the entries themselves.
 
   wk sync add        Declare new entries from flags (--project / --projects-dir / --sync)
+  wk sync discover   List server-side folders not yet in sync config
   wk sync list       Show all entries (folder_id as — when uncached)
   wk sync refresh    Reconcile cached folder_id values against the workspace
   wk sync remove     Remove an entry from wk.toml (optionally purge local files)`,
 	}
 	cmd.AddCommand(newSyncAddCmd())
+	cmd.AddCommand(newSyncDiscoverCmd())
 	cmd.AddCommand(newSyncListCmd())
 	cmd.AddCommand(newSyncRefreshCmd())
 	cmd.AddCommand(newSyncRemoveCmd())

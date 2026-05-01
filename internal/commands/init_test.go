@@ -1184,3 +1184,85 @@ func TestInitProfileNotFoundNamesExpectedPath(t *testing.T) {
 		t.Errorf("err = %v, want mention of %q", err, expected)
 	}
 }
+
+// TestInitInsideSameNameDir verifies fix #57: running `wk init --name X`
+// from inside a directory already named X uses cwd as the target instead
+// of creating X/X.
+func TestInitInsideSameNameDir(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+
+	// Create and cd into a directory named "my-project".
+	projectDir := filepath.Join(dir, "my-project")
+	if err := os.Mkdir(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	os.Chdir(projectDir)
+
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "my-project", "--profile", "dev", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	// wk.toml should be in projectDir, NOT in projectDir/my-project.
+	cfg, err := config.Load(config.ProjectConfigPath(projectDir))
+	if err != nil {
+		t.Fatalf("loading config from projectDir: %v", err)
+	}
+	if cfg.Name != "my-project" {
+		t.Errorf("Name = %q, want my-project", cfg.Name)
+	}
+
+	// The nested directory must NOT exist.
+	nested := filepath.Join(projectDir, "my-project")
+	if _, err := os.Stat(filepath.Join(nested, config.ProjectDir)); err == nil {
+		t.Error("nested my-project/my-project/.wk/ should not exist — init should use cwd")
+	}
+}
+
+// TestInitOverwriteFromInsideExistingProject verifies fix #59: running
+// `wk init --overwrite` from inside an existing project (where
+// targetDir == projectRoot) should succeed instead of hitting the nesting
+// guard.
+func TestInitOverwriteFromInsideExistingProject(t *testing.T) {
+	cleanupHome := setupTestHome(t)
+	defer cleanupHome()
+
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+
+	// Create a project named "my-project" from the parent directory.
+	os.Chdir(dir)
+	root := NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "my-project", "--profile", "dev", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("first init: %v", err)
+	}
+
+	// Now cd into my-project and reinit with --overwrite.
+	projectDir := filepath.Join(dir, "my-project")
+	os.Chdir(projectDir)
+
+	root = NewRootCmd()
+	root.AddCommand(newInitCmd())
+	root.SetArgs([]string{"init", "--name", "my-project", "--profile", "dev", "--overwrite", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("overwrite from inside project should succeed, got: %v", err)
+	}
+
+	cfg, err := config.Load(config.ProjectConfigPath(projectDir))
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if cfg.Name != "my-project" {
+		t.Errorf("Name = %q, want my-project", cfg.Name)
+	}
+}

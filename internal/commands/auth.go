@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -165,7 +166,6 @@ requires --token and --environment explicitly. See ADR-006.`,
 				Environment: environment,
 				Email:       info.Email,
 				Region:      r,
-				StoreType:   auth.StoreKeychain,
 				BaseURL:     baseURL,
 				CreatedAt:   now,
 			}
@@ -173,25 +173,50 @@ requires --token and --environment explicitly. See ADR-006.`,
 			cred := &auth.Credential{
 				Token:     token,
 				Region:    r,
-				StoreType: auth.StoreKeychain,
 				CreatedAt: now,
 			}
 
-			if err := pm.SaveProfile(profile); err != nil {
-				return fmt.Errorf("saving profile: %w", err)
-			}
+			switch flagStoreType {
+			case "", string(auth.StoreKeychain):
+				profile.StoreType = auth.StoreKeychain
+				cred.StoreType = auth.StoreKeychain
 
-			store := &auth.KeyringStore{}
-			if err := store.Set(cmd.Context(), name, cred); err != nil {
-				return fmt.Errorf("storing credential: %w", err)
-			}
+				if err := pm.SaveProfile(profile); err != nil {
+					return fmt.Errorf("saving profile: %w", err)
+				}
 
-			if err := pm.SetActiveProfile(name); err != nil {
-				return fmt.Errorf("setting active profile: %w", err)
-			}
+				store := &auth.KeyringStore{}
+				if err := store.Set(cmd.Context(), name, cred); err != nil {
+					return fmt.Errorf("storing credential: %w", err)
+				}
 
-			fmt.Fprintf(os.Stdout, "Profile %q saved and set as active (workspace: %s, environment: %s, region: %s)\n",
-				name, workspace, environment, region)
+				if err := pm.SetActiveProfile(name); err != nil {
+					return fmt.Errorf("setting active profile: %w", err)
+				}
+
+				fmt.Fprintf(os.Stdout, "Profile %q saved and set as active (workspace: %s, environment: %s, region: %s)\n",
+					name, workspace, environment, region)
+
+			case string(auth.StoreFile):
+				profile.StoreType = auth.StoreFile
+				cred.StoreType = auth.StoreFile
+
+				loginCwd, err := os.Getwd()
+				if err != nil {
+					return fmt.Errorf("getting current directory: %w", err)
+				}
+				envPath := filepath.Join(loginCwd, auth.ProfilesEnvFile)
+				if err := auth.WriteProfilesEnv(envPath, profile, cred); err != nil {
+					return err
+				}
+
+				fmt.Fprintf(os.Stdout, "Profile %q written to %s (workspace: %s, environment: %s, region: %s)\n",
+					name, envPath, workspace, environment, region)
+
+			default:
+				return fmt.Errorf("unknown --store-type %q; valid: %s, %s",
+					flagStoreType, auth.StoreKeychain, auth.StoreFile)
+			}
 			return nil
 		},
 	}

@@ -16,9 +16,10 @@ import (
 // BindSyncEntryFlags, then call AssembleSyncEntries to turn parsed values
 // into a deduplicated []config.SyncEntry.
 type SyncEntryFlags struct {
-	Projects    []string
-	ProjectsDir string
-	Syncs       []string
+	Projects       []string
+	ProjectsDir    string
+	ProjectsDirSet bool // true when --projects-dir was explicitly passed
+	Syncs          []string
 }
 
 // BindSyncEntryFlags registers --project, --projects-dir, and --sync on
@@ -47,7 +48,7 @@ func AssembleSyncEntries(f *SyncEntryFlags, projectRoot string) ([]config.SyncEn
 
 	var entries []config.SyncEntry
 
-	discovery := len(f.Projects) == 0 && f.ProjectsDir != "."
+	discovery := len(f.Projects) == 0 && (f.ProjectsDir != "." || f.ProjectsDirSet)
 	if discovery {
 		// --projects-dir is declared relative to the container (ADR-007
 		// Decision 1, mental model: "where inside the container Workato

@@ -138,6 +138,45 @@ func TestSyncAdd_ErrorsWhenNoEntriesDeclared(t *testing.T) {
 	}
 }
 
+// TestSyncAdd_ExplicitProjectsDirDot verifies fix #58: `wk sync add
+// --projects-dir .` with subdirectories present should discover and add
+// them, even though "." is the default value.
+func TestSyncAdd_ExplicitProjectsDirDot(t *testing.T) {
+	resetGlobalFlags(t)
+	cwd := setupIsolatedHome(t)
+	writeProjectSkel(t, cwd, nil)
+
+	// Create subdirs at project root for discovery.
+	for _, sub := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(cwd, sub), 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+
+	root := NewRootCmd()
+	root.AddCommand(newSyncCmd())
+	root.SetArgs([]string{"sync", "add", "--projects-dir", "."})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("sync add --projects-dir . failed: %v", err)
+	}
+
+	reloaded, err := config.Load(config.ProjectConfigPath(cwd))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(reloaded.Sync) != 2 {
+		t.Fatalf("Sync len = %d, want 2 (discovered alpha and beta): %+v",
+			len(reloaded.Sync), reloaded.Sync)
+	}
+	names := map[string]bool{}
+	for _, e := range reloaded.Sync {
+		names[e.ServerPath] = true
+	}
+	if !names["alpha"] || !names["beta"] {
+		t.Errorf("Sync = %+v, want alpha and beta", reloaded.Sync)
+	}
+}
+
 // TestSyncAdd_AcceptsNoInput regression-guards the bug where `wk sync add`
 // rejected --no-input while `wk init` accepted it. --no-input is a root
 // persistent flag; commands that don't prompt accept it as a no-op so

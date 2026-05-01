@@ -21,7 +21,8 @@ type PushResult struct {
 // Push uploads local assets to the remote workspace.
 // If dryRun is true, it reports what would be pushed without making changes.
 // preserveState controls whether recipe active state is preserved on import.
-func (e *SyncEngine) Push(entry config.SyncEntry, dryRun bool, preserveState bool) ([]PushResult, error) {
+// If force is true, all tracked files are pushed regardless of local change status.
+func (e *SyncEngine) Push(entry config.SyncEntry, dryRun bool, preserveState bool, force bool) ([]PushResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -33,10 +34,24 @@ func (e *SyncEngine) Push(entry config.SyncEntry, dryRun bool, preserveState boo
 		return nil, fmt.Errorf("checking local status: %w", err)
 	}
 
-	// Filter to files that have changes.
+	// Filter to files that have changes (or all non-deleted files when force is set).
 	var toPush []AssetStatus
 	var results []PushResult
 	for _, s := range statuses {
+		if force && s.Status != StatusDeleted {
+			toPush = append(toPush, s)
+			action := "forced"
+			if s.Status == StatusNew {
+				action = "created"
+			} else if s.Status == StatusModified {
+				action = "updated"
+			}
+			results = append(results, PushResult{
+				FilePath: s.FilePath,
+				Action:   action,
+			})
+			continue
+		}
 		switch s.Status {
 		case StatusModified, StatusNew:
 			toPush = append(toPush, s)

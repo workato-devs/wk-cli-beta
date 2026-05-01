@@ -200,3 +200,58 @@ func TestAssembleSyncEntries_RejectsTraversalInProjectsDir(t *testing.T) {
 		t.Errorf("err = %v, want '--projects-dir'", err)
 	}
 }
+
+// TestAssembleSyncEntries_ExplicitDotProjectsDirTriggersDiscovery verifies
+// fix #58: when --projects-dir . is explicitly passed (ProjectsDirSet=true),
+// discovery triggers even though ProjectsDir == "." (the default value).
+func TestAssembleSyncEntries_ExplicitDotProjectsDirTriggersDiscovery(t *testing.T) {
+	root := chdirToTempRoot(t)
+	for _, sub := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+
+	entries, err := AssembleSyncEntries(&SyncEntryFlags{
+		ProjectsDir:    ".",
+		ProjectsDirSet: true,
+	}, root)
+	if err != nil {
+		t.Fatalf("AssembleSyncEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("len(entries) = %d, want 2 (discovery should have found alpha and beta): %+v",
+			len(entries), entries)
+	}
+	names := map[string]bool{}
+	for _, e := range entries {
+		names[e.ServerPath] = true
+	}
+	if !names["alpha"] || !names["beta"] {
+		t.Errorf("entries = %+v, want alpha and beta discovered", entries)
+	}
+}
+
+// TestAssembleSyncEntries_DefaultDotProjectsDirSkipsDiscovery verifies the
+// baseline: when --projects-dir is NOT explicitly passed (the "." default),
+// and no --project flags are set, discovery does not trigger.
+func TestAssembleSyncEntries_DefaultDotProjectsDirSkipsDiscovery(t *testing.T) {
+	root := chdirToTempRoot(t)
+	for _, sub := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+
+	entries, err := AssembleSyncEntries(&SyncEntryFlags{
+		ProjectsDir:    ".",
+		ProjectsDirSet: false,
+	}, root)
+	if err != nil {
+		t.Fatalf("AssembleSyncEntries: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("len(entries) = %d, want 0 (default '.' should NOT trigger discovery): %+v",
+			len(entries), entries)
+	}
+}

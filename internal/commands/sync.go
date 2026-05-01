@@ -99,6 +99,7 @@ func newPushCmd() *cobra.Command {
 		flagSkipHooks     bool
 		flagNoCreate      bool
 		flagCreatePath    bool
+		flagForce         bool
 	)
 
 	cmd := &cobra.Command{
@@ -163,7 +164,7 @@ reported on stderr (or as folders_created in --json output).`,
 
 			var allResults []sync.PushResult
 			for _, entry := range entries {
-				results, err := engine.Push(entry, flagDryRun, flagPreserveState)
+				results, err := engine.Push(entry, flagDryRun, flagPreserveState, flagForce)
 				if err != nil {
 					return err
 				}
@@ -219,6 +220,7 @@ reported on stderr (or as folders_created in --json output).`,
 	cmd.Flags().BoolVar(&flagSkipHooks, "skip-hooks", false, "Skip plugin pre-push hooks")
 	cmd.Flags().BoolVar(&flagNoCreate, "no-create", false, "Error instead of auto-creating missing server folders")
 	cmd.Flags().BoolVar(&flagCreatePath, "create-path", false, "Create every missing segment of a nested server_path (not just bare names)")
+	cmd.Flags().BoolVar(&flagForce, "force", false, "Push all tracked files regardless of local change status")
 
 	return cmd
 }

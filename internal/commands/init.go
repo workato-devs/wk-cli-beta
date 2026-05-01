@@ -146,11 +146,6 @@ wk sync add/remove for incremental edits.`,
 				return fmt.Errorf("getting current directory: %w", err)
 			}
 
-			// Nesting guard: prevent creating a project inside an existing one.
-			if projectRoot, err := config.FindProjectRoot(cwd); err == nil {
-				return fmt.Errorf("%w at %s — run from outside the project directory", wkerrors.ErrNestedProject, projectRoot)
-			}
-
 			name := flagName
 			// Read the persistent root --profile (-p) rather than a local
 			// shadow. A local init-only --profile would mask the persistent
@@ -200,17 +195,29 @@ wk sync add/remove for incremental edits.`,
 				return err
 			}
 
-			// Resolve the target directory: <cwd>/<name>/
-			// Config lives at <target>/.wk/wk.toml per ADR-005 Decision 1.
+			// Resolve the target directory. When the user is already
+			// inside a directory matching --name, use cwd as the target
+			// instead of nesting (fixes #57).
 			targetDir := filepath.Join(cwd, name)
+			if filepath.Base(cwd) == name {
+				targetDir = cwd
+			}
 			configPath := config.ProjectConfigPath(targetDir)
 
-			// Belt-and-suspenders traversal guard. Even with validateProjectName,
-			// require that the cleaned target is an immediate child of cwd —
-			// this catches any edge case the name-level check might miss
-			// (platform-specific path quirks, future changes, etc.).
-			if filepath.Dir(targetDir) != cwd {
+			// Traversal guard: the target must be either cwd itself
+			// (reinit case) or an immediate child of cwd.
+			if targetDir != cwd && filepath.Dir(targetDir) != cwd {
 				return fmt.Errorf("refusing to scaffold outside current directory: %s", targetDir)
+			}
+
+			// Nesting guard: prevent creating a project inside an
+			// existing one. When reinitializing the current project
+			// (targetDir == projectRoot), fall through to the overwrite
+			// check below instead of blocking (fixes #59).
+			if projectRoot, err := config.FindProjectRoot(cwd); err == nil {
+				if targetDir != projectRoot {
+					return fmt.Errorf("%w at %s — run from outside the project directory", wkerrors.ErrNestedProject, projectRoot)
+				}
 			}
 
 			// Validate profile. File-store profiles live at
@@ -275,6 +282,9 @@ wk sync add/remove for incremental edits.`,
 			// surface (ADR-007 Decisions 1-5). Shared with `wk sync add`.
 			// Path-traversal guard and same-server-path conflict checks run
 			// inside AssembleSyncEntries.
+			if cmd.Flags().Lookup("projects-dir").Changed {
+				syncFlags.ProjectsDirSet = true
+			}
 			requested, err := AssembleSyncEntries(&syncFlags, targetDir)
 			if err != nil {
 				return err

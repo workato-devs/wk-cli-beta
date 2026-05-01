@@ -269,6 +269,52 @@ func parseProfilesEnv(r io.Reader) ([]fileRecord, error) {
 	return records, nil
 }
 
+// WriteProfilesEnv writes a profile and credential to a profiles.env file.
+// If the file already exists, the new record is appended (separated by a
+// blank line). This is the write path for `auth login --store-type file`,
+// bypassing the read-only FileStore.Set() by design.
+func WriteProfilesEnv(path string, profile *Profile, cred *Credential) error {
+	var buf strings.Builder
+	buf.WriteString("NAME=" + profile.Name + "\n")
+	if profile.Region != "" {
+		buf.WriteString("REGION=" + string(profile.Region) + "\n")
+	}
+	if cred.Token != "" {
+		buf.WriteString("TOKEN=" + cred.Token + "\n")
+	}
+	if profile.Workspace != "" {
+		buf.WriteString("WORKSPACE=" + profile.Workspace + "\n")
+	}
+	if profile.WorkspaceID != 0 {
+		buf.WriteString("WORKSPACE_ID=" + strconv.Itoa(profile.WorkspaceID) + "\n")
+	}
+	if profile.Environment != "" {
+		buf.WriteString("ENVIRONMENT=" + profile.Environment + "\n")
+	}
+	if profile.Email != "" {
+		buf.WriteString("EMAIL=" + profile.Email + "\n")
+	}
+	if profile.BaseURL != "" {
+		buf.WriteString("BASE_URL=" + profile.BaseURL + "\n")
+	}
+
+	// If file exists, prepend a blank line separator.
+	content := buf.String()
+	if _, err := os.Stat(path); err == nil {
+		content = "\n" + content
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
 // unquote strips matching outer double quotes. It does not process escapes.
 func unquote(s string) string {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {

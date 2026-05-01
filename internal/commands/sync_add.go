@@ -44,6 +44,9 @@ within one invocation are flagged as errors.`,
 				return wkerrors.ErrNotInProject
 			}
 
+			if cmd.Flags().Lookup("projects-dir").Changed {
+				syncFlags.ProjectsDirSet = true
+			}
 			requested, err := AssembleSyncEntries(&syncFlags, rctx.ProjectRoot)
 			if err != nil {
 				return err
