@@ -370,31 +370,34 @@ func registerPluginCommands(root *cobra.Command) {
 				continue
 			}
 
+			cmd := &cobra.Command{
+				Use:   pcmd.Name,
+				Short: pcmd.Description,
+			}
+
 			if pcmd.Method != "" {
 				def := &pluginCmdDef{Args: pcmd.Args, Flags: pcmd.Flags}
-				cmd := &cobra.Command{
-					Use:   pcmd.Name,
-					Short: pcmd.Description,
-					RunE:  makePluginRunE(p.Dir, pcmd.Method, def),
-				}
+				cmd.RunE = makePluginRunE(p.Dir, pcmd.Method, def)
 				registerPluginFlags(cmd, pcmd.Flags)
+			}
+
+			for _, sub := range pcmd.Subcommands {
+				def := &pluginCmdDef{Args: sub.Args, Flags: sub.Flags}
+				child := &cobra.Command{
+					Use:   sub.Name,
+					Short: sub.Description,
+					RunE:  makePluginRunE(p.Dir, sub.Method, def),
+				}
+				registerPluginFlags(child, sub.Flags)
+				cmd.AddCommand(child)
+			}
+
+			if cmd.RunE != nil && cmd.HasSubCommands() {
+				cmd.TraverseChildren = true
+			}
+
+			if cmd.RunE != nil || cmd.HasSubCommands() {
 				root.AddCommand(cmd)
-			} else if len(pcmd.Subcommands) > 0 {
-				parent := &cobra.Command{
-					Use:   pcmd.Name,
-					Short: pcmd.Description,
-				}
-				for _, sub := range pcmd.Subcommands {
-					def := &pluginCmdDef{Args: sub.Args, Flags: sub.Flags}
-					child := &cobra.Command{
-						Use:   sub.Name,
-						Short: sub.Description,
-						RunE:  makePluginRunE(p.Dir, sub.Method, def),
-					}
-					registerPluginFlags(child, sub.Flags)
-					parent.AddCommand(child)
-				}
-				root.AddCommand(parent)
 			}
 		}
 	}
