@@ -8,15 +8,25 @@ import (
 )
 
 // jsonTags extracts all json field names from a struct type,
-// stripping ",omitempty" and skipping "-" tags.
+// stripping ",omitempty" and skipping "-" tags. Recurses into
+// anonymous (embedded) fields so embedded structs contribute their tags.
 func jsonTags(t reflect.Type) map[string]bool {
 	tags := make(map[string]bool)
+	collectJSONTags(t, tags)
+	return tags
+}
+
+func collectJSONTags(t reflect.Type, tags map[string]bool) {
 	for i := 0; i < t.NumField(); i++ {
-		tag := t.Field(i).Tag.Get("json")
+		f := t.Field(i)
+		if f.Anonymous {
+			collectJSONTags(f.Type, tags)
+			continue
+		}
+		tag := f.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue
 		}
-		// Strip options like ",omitempty"
 		if idx := len(tag); idx > 0 {
 			for j, c := range tag {
 				if c == ',' {
@@ -27,7 +37,6 @@ func jsonTags(t reflect.Type) map[string]bool {
 		}
 		tags[tag] = true
 	}
-	return tags
 }
 
 // TestStructFieldCoverage verifies that our Go structs capture all known
@@ -83,7 +92,7 @@ func TestStructFieldCoverage(t *testing.T) {
 			structType: reflect.TypeOf(APIEndpoint{}),
 			expectedFields: []string{
 				"id", "name", "api_collection_id", "active",
-				"method", "path", "recipe_id",
+				"method", "path", "recipe_id", "flow_id",
 			},
 		},
 		{
@@ -92,6 +101,22 @@ func TestStructFieldCoverage(t *testing.T) {
 			expectedFields: []string{
 				"id", "recipe_id", "status",
 				"started_at", "completed_at",
+				"title", "is_error", "error", "is_poll_error",
+				"calling_recipe_id", "calling_job_id",
+				"root_recipe_id", "root_job_id", "master_job_id",
+			},
+		},
+		{
+			name:       "JobDetail",
+			structType: reflect.TypeOf(JobDetail{}),
+			expectedFields: []string{
+				"id", "recipe_id", "status",
+				"started_at", "completed_at",
+				"title", "is_error", "error", "is_poll_error",
+				"calling_recipe_id", "calling_job_id",
+				"root_recipe_id", "root_job_id", "master_job_id",
+				"handle", "is_repeat", "is_test", "is_test_case_job",
+				"master_job_handle", "calling_job_handle", "lines",
 			},
 		},
 		{
@@ -128,6 +153,16 @@ func TestStructFieldCoverage(t *testing.T) {
 			structType: reflect.TypeOf(Connector{}),
 			expectedFields: []string{
 				"name", "title", "description",
+			},
+		},
+		{
+			name:       "Skill",
+			structType: reflect.TypeOf(Skill{}),
+			expectedFields: []string{
+				"id", "name", "description", "recipe_id",
+				"provider_id", "provider_type",
+				"folder_id", "project_id", "running",
+				"genies_count", "trigger_description", "applications",
 			},
 		},
 	}
@@ -179,6 +214,7 @@ func TestStructFieldCoverage_TableColumns(t *testing.T) {
 		"WorkspaceUser": {"id", "name", "email"},
 		"AuditLogEntry": {"id", "event_type", "user", "timestamp"},
 		"Connector":     {"name", "title", "description"},
+		"Skill":         {"id", "name", "provider_id", "folder_id", "project_id", "running"},
 	}
 
 	structTypes := map[string]reflect.Type{
@@ -191,6 +227,7 @@ func TestStructFieldCoverage_TableColumns(t *testing.T) {
 		"WorkspaceUser": reflect.TypeOf(WorkspaceUser{}),
 		"AuditLogEntry": reflect.TypeOf(AuditLogEntry{}),
 		"Connector":     reflect.TypeOf(Connector{}),
+		"Skill":         reflect.TypeOf(Skill{}),
 	}
 
 	for name, fields := range requiredTableFields {

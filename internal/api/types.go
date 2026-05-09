@@ -88,11 +88,47 @@ type PackageContent struct {
 	Type         string `json:"type"` // "recipe", "connection", etc.
 }
 
-// Job represents a recipe job execution.
+// Job represents a recipe job execution. Job IDs are strings
+// (e.g. "j-AJMfQh8c-hsCXcs"); recipe IDs are integers.
 type Job struct {
-	ID          int        `json:"id"`
-	RecipeID    int        `json:"recipe_id"`
-	Status      string     `json:"status"` // "succeeded", "failed", "pending"
+	ID              string     `json:"id"`
+	RecipeID        int        `json:"recipe_id"`
+	Status          string     `json:"status"` // "succeeded", "failed", "pending"
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+	Title           string     `json:"title,omitempty"`
+	IsError         bool       `json:"is_error"`
+	Error           *string    `json:"error,omitempty"`
+	IsPollError     bool       `json:"is_poll_error"`
+	CallingRecipeID *int       `json:"calling_recipe_id,omitempty"`
+	CallingJobID    *string    `json:"calling_job_id,omitempty"`
+	RootRecipeID    *int       `json:"root_recipe_id,omitempty"`
+	RootJobID       *string    `json:"root_job_id,omitempty"`
+	MasterJobID     *string    `json:"master_job_id,omitempty"`
+}
+
+// JobDetail is the single-job response from GET /recipes/{id}/jobs/{job_id}.
+type JobDetail struct {
+	Job
+	Handle           string    `json:"handle,omitempty"`
+	IsRepeat         bool      `json:"is_repeat"`
+	IsTest           bool      `json:"is_test"`
+	IsTestCaseJob    bool      `json:"is_test_case_job"`
+	MasterJobHandle  string    `json:"master_job_handle,omitempty"`
+	CallingJobHandle string    `json:"calling_job_handle,omitempty"`
+	Lines            []JobLine `json:"lines,omitempty"`
+}
+
+// JobLine represents a single step in a job execution trace.
+type JobLine struct {
+	RecipeLineNumber int       `json:"recipe_line_number"`
+	AdapterName      string    `json:"adapter_name"`
+	AdapterOperation string    `json:"adapter_operation"`
+	LineStat         *LineStat `json:"line_stat,omitempty"`
+}
+
+// LineStat holds timing data for a job step.
+type LineStat struct {
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
@@ -136,7 +172,9 @@ type APICollection struct {
 	ProjectID   int    `json:"project_id"`
 }
 
-// APIEndpoint represents a Workato API endpoint.
+// APIEndpoint represents a Workato API endpoint. The create response returns
+// "flow_id" where the list response returns "recipe_id"; FlowID captures the
+// former so both paths decode cleanly.
 type APIEndpoint struct {
 	ID              int    `json:"id"`
 	Name            string `json:"name"`
@@ -145,16 +183,25 @@ type APIEndpoint struct {
 	Method          string `json:"method,omitempty"`
 	Path            string `json:"path,omitempty"`
 	RecipeID        int    `json:"recipe_id,omitempty"`
+	FlowID          int    `json:"flow_id,omitempty"`
 }
 
-// Skill represents a Workato agentic skill.
+// Skill represents a Workato agentic skill. The API returns string IDs
+// (e.g. "skl-Aa6zhmTh-4ac8TH-AB") and uses "provider_id" for the recipe
+// association; RecipeID is backfilled from ProviderID for display convenience.
 type Skill struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	RecipeID    int    `json:"recipe_id"`
-	FolderID    int    `json:"folder_id"`
-	ProjectID   int    `json:"project_id"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Description        string `json:"description,omitempty"`
+	RecipeID           int    `json:"recipe_id,omitempty"`
+	ProviderID         int    `json:"provider_id"`
+	ProviderType       string `json:"provider_type,omitempty"`
+	FolderID           int    `json:"folder_id"`
+	ProjectID          int    `json:"project_id"`
+	Running            bool   `json:"running"`
+	GeniesCount        int    `json:"genies_count"`
+	TriggerDescription string `json:"trigger_description,omitempty"`
+	Applications       []any  `json:"applications,omitempty"`
 }
 
 // PaginationOptions provides generic pagination parameters.

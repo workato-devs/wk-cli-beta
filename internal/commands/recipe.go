@@ -192,8 +192,8 @@ func newRecipesStartCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("checking recipe status: %w", err)
 				}
-				if recipe.Running && recipe.Active {
-					fmt.Fprintf(os.Stderr, "Recipe %d started and active\n", id)
+				if recipe.Running {
+					fmt.Fprintf(os.Stderr, "Recipe %d started and running\n", id)
 					return nil
 				}
 				time.Sleep(interval)
@@ -330,11 +330,11 @@ func newRecipesJobsCmd() *cobra.Command {
 	var limit int
 
 	cmd := &cobra.Command{
-		Use:   "jobs <id>",
+		Use:   "jobs <recipe-id>",
 		Short: "List recipe jobs",
 		Example: `  wk recipes jobs 12345
   wk recipes jobs 12345 --status failed --limit 10 --json`,
-		Args:  requireArgs(1, "recipe ID is required, e.g.: wk recipes jobs <id>"),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rctx, err := BuildRunContext(cmd)
 			if err != nil {
@@ -364,7 +364,7 @@ func newRecipesJobsCmd() *cobra.Command {
 				return rctx.Formatter.Format(os.Stdout, jobs)
 			}
 
-			headers := []string{"ID", "STATUS", "STARTED AT", "COMPLETED AT"}
+			headers := []string{"ID", "STATUS", "STARTED AT", "COMPLETED AT", "ERROR"}
 			var rows [][]string
 			for _, j := range jobs {
 				started := ""
@@ -375,11 +375,16 @@ func newRecipesJobsCmd() *cobra.Command {
 				if j.CompletedAt != nil {
 					completed = j.CompletedAt.Format(time.RFC3339)
 				}
+				errMsg := ""
+				if j.Error != nil {
+					errMsg = *j.Error
+				}
 				rows = append(rows, []string{
-					strconv.Itoa(j.ID),
+					j.ID,
 					j.Status,
 					started,
 					completed,
+					errMsg,
 				})
 			}
 			return rctx.Formatter.FormatList(os.Stdout, headers, rows)
@@ -388,7 +393,81 @@ func newRecipesJobsCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&status, "status", "all", "Filter by status (succeeded, failed, all)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of jobs to return")
+	cmd.AddCommand(newRecipesJobsGetCmd())
 	return cmd
+}
+
+func newRecipesJobsGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <recipe-id> <job-id>",
+		Short: "Get details for a single job, including step traces",
+		Example: `  wk recipes jobs get 12345 67890
+  wk recipes jobs get 12345 67890 --json`,
+		Args: requireArgs(2, "recipe ID and job ID are required, e.g.: wk recipes jobs get <recipe-id> <job-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rctx, err := BuildRunContext(cmd)
+			if err != nil {
+				return err
+			}
+			client, _, err := resolveAPIClient(cmd)
+			if err != nil {
+				return err
+			}
+
+			recipeID, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid recipe ID: %s", args[0])
+			}
+
+			detail, err := client.Recipes().GetJob(cmd.Context(), recipeID, args[1])
+			if err != nil {
+				return err
+			}
+
+			if flagJSON {
+				return rctx.Formatter.Format(os.Stdout, detail)
+			}
+
+			fmt.Fprintf(os.Stdout, "Job ID:     %s\n", detail.ID)
+			fmt.Fprintf(os.Stdout, "Recipe ID:  %d\n", detail.RecipeID)
+			fmt.Fprintf(os.Stdout, "Status:     %s\n", detail.Status)
+			if detail.StartedAt != nil {
+				fmt.Fprintf(os.Stdout, "Started:    %s\n", detail.StartedAt.Format(time.RFC3339))
+			}
+			if detail.CompletedAt != nil {
+				fmt.Fprintf(os.Stdout, "Completed:  %s\n", detail.CompletedAt.Format(time.RFC3339))
+			}
+			if detail.Error != nil {
+				fmt.Fprintf(os.Stdout, "Error:      %s\n", *detail.Error)
+			}
+
+			if len(detail.Lines) > 0 {
+				fmt.Fprintln(os.Stdout)
+				headers := []string{"STEP", "ADAPTER", "OPERATION", "STARTED AT", "COMPLETED AT"}
+				var rows [][]string
+				for _, line := range detail.Lines {
+					started, completed := "", ""
+					if line.LineStat != nil {
+						if line.LineStat.StartedAt != nil {
+							started = line.LineStat.StartedAt.Format(time.RFC3339)
+						}
+						if line.LineStat.CompletedAt != nil {
+							completed = line.LineStat.CompletedAt.Format(time.RFC3339)
+						}
+					}
+					rows = append(rows, []string{
+						strconv.Itoa(line.RecipeLineNumber),
+						line.AdapterName,
+						line.AdapterOperation,
+						started,
+						completed,
+					})
+				}
+				return rctx.Formatter.FormatList(os.Stdout, headers, rows)
+			}
+			return nil
+		},
+	}
 }
 
 func newRecipesCopyCmd() *cobra.Command {

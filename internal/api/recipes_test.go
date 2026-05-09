@@ -21,7 +21,7 @@ func TestRecipeService_ListJobs(t *testing.T) {
 			t.Errorf("status = %q, want succeeded", s)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ListResult[Job]{Items: []Job{{ID: 1, RecipeID: 42, Status: "succeeded"}}})
+		json.NewEncoder(w).Encode(ListResult[Job]{Items: []Job{{ID: "j-1", RecipeID: 42, Status: "succeeded"}}})
 	}))
 	defer srv.Close()
 
@@ -32,6 +32,50 @@ func TestRecipeService_ListJobs(t *testing.T) {
 	}
 	if len(jobs) != 1 || jobs[0].Status != "succeeded" {
 		t.Errorf("got %+v, want 1 succeeded job", jobs)
+	}
+}
+
+func TestRecipeService_GetJob(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/recipes/42/jobs/j-abc123" {
+			t.Errorf("path = %s, want /recipes/42/jobs/j-abc123", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		resp := `{
+			"id": "j-abc123", "recipe_id": 42, "status": "failed",
+			"is_error": true, "error": "Connection timeout",
+			"handle": "j-abc123",
+			"lines": [
+				{"recipe_line_number": 1, "adapter_name": "rest", "adapter_operation": "make_request_v2"},
+				{"recipe_line_number": 2, "adapter_name": "logger", "adapter_operation": "log_message"}
+			]
+		}`
+		w.Write([]byte(resp))
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	detail, err := client.Recipes().GetJob(context.Background(), 42, "j-abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if detail.Status != "failed" {
+		t.Errorf("status = %q, want failed", detail.Status)
+	}
+	if detail.Error == nil || *detail.Error != "Connection timeout" {
+		t.Errorf("error = %v, want 'Connection timeout'", detail.Error)
+	}
+	if detail.Handle != "j-abc123" {
+		t.Errorf("handle = %q, want j-abc123", detail.Handle)
+	}
+	if len(detail.Lines) != 2 {
+		t.Fatalf("lines count = %d, want 2", len(detail.Lines))
+	}
+	if detail.Lines[0].AdapterName != "rest" {
+		t.Errorf("lines[0].adapter_name = %q, want rest", detail.Lines[0].AdapterName)
 	}
 }
 
@@ -172,6 +216,85 @@ func TestRecipeService_Update_StringifiesCodeAndConfig(t *testing.T) {
 	}
 	if s, ok := captured["config"].(string); !ok || s != `[{"k":"v"}]` {
 		t.Errorf("config not stringified; got %T %v", captured["config"], captured["config"])
+	}
+}
+
+func TestRecipeService_Import_BackfillsConfigName(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/recipes":
+			json.NewDecoder(r.Body).Decode(&captured)
+			w.Write([]byte(`{"success":true,"id":1}`))
+		case r.Method == "GET" && r.URL.Path == "/recipes/1":
+			json.NewEncoder(w).Encode(Recipe{ID: 1, Name: "test", FolderID: 10})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	// Config entry missing "name" — should be backfilled from "provider".
+	body := []byte(`{"name":"test","code":{},"config":[{"keyword":"application","provider":"salesforce","account_id":123}]}`)
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	_, err := client.Recipes().Import(context.Background(), 10, body)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	configStr, ok := captured["config"].(string)
+	if !ok {
+		t.Fatalf("config not stringified; got %T", captured["config"])
+	}
+	var config []map[string]any
+	if err := json.Unmarshal([]byte(configStr), &config); err != nil {
+		t.Fatalf("parsing config: %v", err)
+	}
+	if len(config) != 1 {
+		t.Fatalf("config entries = %d, want 1", len(config))
+	}
+	if config[0]["name"] != "salesforce" {
+		t.Errorf("name = %v, want salesforce (backfilled from provider)", config[0]["name"])
+	}
+}
+
+func TestRecipeService_Import_PreservesExistingConfigName(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/recipes":
+			json.NewDecoder(r.Body).Decode(&captured)
+			w.Write([]byte(`{"success":true,"id":1}`))
+		case r.Method == "GET" && r.URL.Path == "/recipes/1":
+			json.NewEncoder(w).Encode(Recipe{ID: 1, Name: "test", FolderID: 10})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	// Config entry already has "name" — should not be overwritten.
+	body := []byte(`{"name":"test","code":{},"config":[{"keyword":"application","provider":"salesforce","name":"salesforce","account_id":123}]}`)
+
+	client := NewHTTPClient(srv.URL, "test-token")
+	_, err := client.Recipes().Import(context.Background(), 10, body)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	configStr, ok := captured["config"].(string)
+	if !ok {
+		t.Fatalf("config not stringified; got %T", captured["config"])
+	}
+	var config []map[string]any
+	if err := json.Unmarshal([]byte(configStr), &config); err != nil {
+		t.Fatalf("parsing config: %v", err)
+	}
+	if config[0]["name"] != "salesforce" {
+		t.Errorf("name = %v, want salesforce (preserved)", config[0]["name"])
 	}
 }
 

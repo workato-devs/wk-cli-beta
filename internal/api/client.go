@@ -13,6 +13,7 @@ type RecipeService interface {
 	Update(ctx context.Context, id int, data []byte) error
 	Delete(ctx context.Context, id int) error
 	ListJobs(ctx context.Context, recipeID int, opts *JobListOptions) ([]Job, error)
+	GetJob(ctx context.Context, recipeID int, jobID string) (*JobDetail, error)
 	Copy(ctx context.Context, recipeID, folderID int) (*Recipe, error)
 	Connect(ctx context.Context, recipeID int, adapterName string, connectionID int) error
 	ListVersions(ctx context.Context, recipeID, page, perPage int) ([]RecipeVersion, error)
@@ -86,6 +87,7 @@ type APICollectionService interface {
 // APIEndpointService defines operations on API endpoints.
 type APIEndpointService interface {
 	List(ctx context.Context, collectionID *int, opts *PaginationOptions) ([]APIEndpoint, error)
+	Create(ctx context.Context, collectionID int, data []byte) (*APIEndpoint, error)
 	Enable(ctx context.Context, id int) error
 	Disable(ctx context.Context, id int) error
 }
@@ -93,7 +95,7 @@ type APIEndpointService interface {
 // SkillService defines operations on agentic skills.
 type SkillService interface {
 	List(ctx context.Context, opts *PaginationOptions) ([]Skill, error)
-	Get(ctx context.Context, id int) (*Skill, error)
+	Get(ctx context.Context, id string) (*Skill, error)
 	Create(ctx context.Context, recipeID int) (*Skill, error)
 }
 

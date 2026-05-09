@@ -100,7 +100,8 @@ func (s *recipeService) Delete(ctx context.Context, id int) error {
 }
 
 // decodeAndResolve unmarshals recipe JSON, resolves any connection reference
-// objects in config to integer IDs, then stringifies code/config for the API.
+// objects in config to integer IDs, backfills missing "name" fields from
+// "provider", then stringifies code/config for the API.
 func (s *recipeService) decodeAndResolve(ctx context.Context, data []byte) (map[string]any, error) {
 	var body map[string]any
 	if err := json.Unmarshal(data, &body); err != nil {
@@ -110,6 +111,7 @@ func (s *recipeService) decodeAndResolve(ctx context.Context, data []byte) (map[
 	if err := s.resolveConfigConnections(ctx, body); err != nil {
 		return nil, err
 	}
+	backfillConfigNames(body)
 
 	for _, key := range []string{"code", "config"} {
 		v, ok := body[key]
@@ -194,6 +196,33 @@ func (s *recipeService) resolveConfigConnections(ctx context.Context, body map[s
 	return nil
 }
 
+// backfillConfigNames ensures every config entry has a "name" field. The
+// Workato platform requires it to wire adapters on activation; exports always
+// set name == provider, but hand-crafted or ZIP-extracted JSON may omit it,
+// causing a silent activation failure.
+func backfillConfigNames(body map[string]any) {
+	configVal, ok := body["config"]
+	if !ok {
+		return
+	}
+	configSlice, ok := configVal.([]any)
+	if !ok {
+		return
+	}
+	for _, entry := range configSlice {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, hasName := entryMap["name"]; hasName {
+			continue
+		}
+		if provider, ok := entryMap["provider"].(string); ok && provider != "" {
+			entryMap["name"] = provider
+		}
+	}
+}
+
 func (s *recipeService) ListJobs(ctx context.Context, recipeID int, opts *JobListOptions) ([]Job, error) {
 	params := url.Values{}
 	if opts != nil {
@@ -213,6 +242,14 @@ func (s *recipeService) ListJobs(ctx context.Context, recipeID int, opts *JobLis
 		return nil, err
 	}
 	return result.Items, nil
+}
+
+func (s *recipeService) GetJob(ctx context.Context, recipeID int, jobID string) (*JobDetail, error) {
+	var detail JobDetail
+	if err := s.client.do(ctx, "GET", fmt.Sprintf("/recipes/%d/jobs/%s", recipeID, url.PathEscape(jobID)), nil, &detail); err != nil {
+		return nil, err
+	}
+	return &detail, nil
 }
 
 func (s *recipeService) Copy(ctx context.Context, recipeID, folderID int) (*Recipe, error) {
