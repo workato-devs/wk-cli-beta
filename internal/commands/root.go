@@ -213,6 +213,7 @@ func registerAllCommands(root *cobra.Command) {
 	root.AddCommand(newFoldersCmd())
 	root.AddCommand(newTagsCmd())
 	root.AddCommand(newAPICmd())
+	root.AddCommand(newAgenticCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newWorkspaceCmd())
 	root.AddCommand(newConnectorsCmd())
